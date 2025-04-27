@@ -1,0 +1,4 @@
+# Ignore datasets
+datasets/
+results/
+pretrained/
