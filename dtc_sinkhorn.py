@@ -430,7 +430,7 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
 
 
             #BCE
-  
+            B, C = prob.shape
             #  stack them into a single [2B × C] matrix
             all_probs = torch.cat([prob, prob_bar], dim=0)      # [2B, C]
 
