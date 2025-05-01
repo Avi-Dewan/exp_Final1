@@ -436,38 +436,58 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
             contrastive_loss = simCLR_loss(z_i, z_j)
 
 
-            # ===== soft BCE loss (Sinkhorn) =====
+       # ===== Debug version: soft BCE loss with full trace =====
 
-            # Compute raw logits (negative squared distances) for Sinkhorn
-            logits = -torch.sum((final_feat.unsqueeze(1) - model.center) ** 2, dim=2)         # [B, C]
-            logits_bar = -torch.sum((final_feat_bar.unsqueeze(1) - model.center) ** 2, dim=2) # [B, C]
+            def check_nan(name, tensor):
+                if torch.isnan(tensor).any():
+                    print(f"❌ NaN found in {name}")
+                    print(f"→ {name}.min: {tensor.min().item()}, max: {tensor.max().item()}")
+                    return True
+                return False
 
-            # Stack logits for both views and apply Sinkhorn
-            logits_all = torch.cat([logits, logits_bar], dim=0)  # [2B, C]
-            logits_all = logits_all - logits_all.max()  # improve numerical stability before exp
-            pseudo_all = sinkhorn(logits_all)           # [2B, C]
+            # Step 1: Raw logits
+            logits = -torch.sum((final_feat.unsqueeze(1) - model.center) ** 2, dim=2)
+            logits_bar = -torch.sum((final_feat_bar.unsqueeze(1) - model.center) ** 2, dim=2)
+
+            if check_nan("logits", logits) or check_nan("logits_bar", logits_bar):
+                raise ValueError("NaN in logits computation")
+
+            # Step 2: Sinkhorn input stability
+            logits_all = torch.cat([logits, logits_bar], dim=0)
+            logits_all = logits_all - logits_all.max()  # stability
+            if check_nan("logits_all (after max subtraction)", logits_all):
+                raise ValueError("NaN before Sinkhorn")
+
+            # Step 3: Sinkhorn assignments
+            pseudo_all = sinkhorn(logits_all)
             pseudo, pseudo_bar = pseudo_all[:logits.size(0)], pseudo_all[logits.size(0):]
+            if check_nan("pseudo", pseudo) or check_nan("pseudo_bar", pseudo_bar):
+                raise ValueError("NaN after Sinkhorn")
 
-            # Pairwise soft pseudo labels from dot product
+            # Step 4: Pairwise soft labels
             pseudo_i, pseudo_j = PairEnum(pseudo)
             pseudo_bar_i, pseudo_bar_j = PairEnum(pseudo_bar)
+
             pairwise_pseudo_label = 0.5 * (
                 (pseudo_i * pseudo_j).sum(dim=1) +
                 (pseudo_bar_i * pseudo_bar_j).sum(dim=1)
             )
+            if check_nan("pairwise_pseudo_label (before clamp)", pairwise_pseudo_label):
+                raise ValueError("NaN in pairwise pseudo label calc")
+
             pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
 
-            # Raw logits for BCE loss (no softmax)
+            # Step 5: BCE inputs - raw logits
             logits_pair, _ = PairEnum(logits)
             _, logits_bar_pair = PairEnum(logits_bar)
 
-            # Trigger eager evaluation (avoids NaN in some PyTorch/CUDA versions)
-            _ = logits_pair.sum()
-            _ = logits_bar_pair.sum()
-            _ = pairwise_pseudo_label.sum()
+            if check_nan("logits_pair", logits_pair) or check_nan("logits_bar_pair", logits_bar_pair):
+                raise ValueError("NaN in BCE input logits")
 
-            # Compute BCE loss
+            # Step 6: Final BCE
             bce_loss = criterion_bce(logits_pair, logits_bar_pair, pairwise_pseudo_label)
+            if torch.isnan(bce_loss):
+                raise ValueError("❌ Final BCE loss is NaN!")
 
 
 
