@@ -55,6 +55,7 @@ class SinkhornKnopp(torch.nn.Module):
         # Step 1: Apply softmax-like transformation with temperature
         # Transpose so that rows represent clusters (K), columns represent samples (B)
         Q = torch.exp(logits / self.epsilon).t()  # Shape: [K, B]
+        Q = Q + 1e-6 # avoid zero entries
 
         # Step 2: Normalize the entire matrix to sum to 1 (prevents scaling instability)
         Q /= Q.sum()  # Q is now a probability distribution over (K × B)
@@ -66,12 +67,12 @@ class SinkhornKnopp(torch.nn.Module):
         for it in range(self.num_iters):
             # Row normalization: each cluster (row) should sum to 1/K
             sum_of_rows = Q.sum(dim=1, keepdim=True)  # Shape: [K, 1]
-            Q /= sum_of_rows
+            Q /= (sum_of_rows + 1e-6)
             Q /= K  # Ensures each row sums to 1/K
 
             # Column normalization: each sample (column) should sum to 1/B
             sum_of_cols = Q.sum(dim=0, keepdim=True)  # Shape: [1, B]
-            Q /= sum_of_cols
+            Q /= (sum_of_cols +  + 1e-6)
             Q /= B  # Ensures each column sums to 1/B
 
         # Step 4: Rescale so each sample's distribution sums to 1
