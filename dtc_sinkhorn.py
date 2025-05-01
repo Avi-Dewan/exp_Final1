@@ -391,96 +391,102 @@ def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
     plt.legend()
     plt.savefig(args.model_folder+'/accuracies.png')   
 
-
 def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
-    '''
-    Sharpening the probability distribution and enforcing consistency with different augmentations
-    '''
-
-    simCLR_loss = SimCLR_Loss(batch_size = args.batch_size, temperature = 0.5).to(device)
+    """
+    Training with: 
+    - KL divergence on sharpened soft cluster assignments (self-training)
+    - Consistency loss across augmentations (MSE)
+    - Contrastive SimCLR loss
+    - Pairwise BCE loss using Sinkhorn-Knopp balanced assignments
+    """
+    simCLR_loss = SimCLR_Loss(batch_size=args.batch_size, temperature=0.5).to(device)
     projector = ProjectionHead(512 * BasicBlock.expansion, 2048, 128).to(device)
     criterion_bce = softBCE_N()
 
-    optimizer = SGD(list(model.parameters()) + list(projector.parameters()), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
-    w = 0
-    w_softBCE = 0
-    # Lists to store metrics for each epoch
-    accuracies = []
-    nmi_scores = []
-    ari_scores = []
+    optimizer = SGD(list(model.parameters()) + list(projector.parameters()),
+                    lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+
+    accuracies, nmi_scores, ari_scores = [], [], []
 
     for epoch in range(args.epochs):
         loss_record = AverageMeter()
         model.train()
-        w = args.rampup_coefficient * ramps.sigmoid_rampup(epoch, args.rampup_length)  # co_eff = 10, length = 5
-        w_softBCE = args.rampup_coefficient_softBCE * ramps.sigmoid_rampup(epoch, args.rampup_length_softBCE)  # co_eff = 20, length = 10
+
+        # ramp-up coefficients
+        w = args.rampup_coefficient * ramps.sigmoid_rampup(epoch, args.rampup_length)
+        w_softBCE = args.rampup_coefficient_softBCE * ramps.sigmoid_rampup(epoch, args.rampup_length_softBCE)
+
         for batch_idx, ((x, x_bar), label, idx) in enumerate(tqdm(train_loader)):
             x, x_bar = x.to(device), x_bar.to(device)
-            extracted_feat, final_feat = model(x) # model.forward() returns two values: Extracted Features(extracted_feat), Final Features(final_feat)
-            extracted_feat_bar, final_feat_bar = model(x_bar)  # get the feature of the augmented image
-            prob = feat2prob(final_feat, model.center) # get the probability distribution by calculating distance from the center
-            prob_bar = feat2prob(final_feat_bar, model.center) #  get the probability distribution of the augmented image
-           
-            sharp_loss = F.kl_div(prob.log(), args.p_targets[idx].float().to(device)) # calculate the KL divergence loss between the probability distribution and the target distribution
-            consistency_loss = F.mse_loss(prob, prob_bar)  # calculate the mean squared error loss between the probability distribution and the probability distribution of the augmented image
 
-            # simCLR loss
-            z_i, z_j = projector(extracted_feat), projector(extracted_feat_bar) 
+            # Feature extraction
+            extracted_feat, final_feat = model(x)
+            extracted_feat_bar, final_feat_bar = model(x_bar)
+
+            # ===== Compute raw logits (before normalization) =====
+            diff = final_feat.unsqueeze(1) - model.center  # [B, K, D]
+            dists = torch.sum(diff ** 2, dim=2)            # [B, K]
+            logits = -dists                                
+
+            diff_bar = final_feat_bar.unsqueeze(1) - model.center
+            dists_bar = torch.sum(diff_bar ** 2, dim=2)
+            logits_bar = -dists_bar
+
+            # ===== Self-training target and consistency =====
+            prob = F.softmax(logits, dim=1)
+            prob_bar = F.softmax(logits_bar, dim=1)
+
+            sharp_loss = F.kl_div(prob.log(), args.p_targets[idx].float().to(device))
+            consistency_loss = F.mse_loss(prob, prob_bar)
+
+            # ===== SimCLR contrastive loss =====
+            z_i, z_j = projector(extracted_feat), projector(extracted_feat_bar)
             contrastive_loss = simCLR_loss(z_i, z_j)
 
+            # ===== Sinkhorn soft assignments =====
+            logits_all = torch.cat([logits, logits_bar], dim=0)  # [2B, K]
+            sink = SinkhornKnopp(num_iters=args.num_iters_sk, epsilon=args.epsilon_sk)
+            pseudo_all = sink(logits_all)                        # [2B, K]
+            pseudo, pseudo_bar = pseudo_all[:logits.size(0)], pseudo_all[logits.size(0):]
 
-            #BCE
-            B, C = prob.shape
-            #  stack them into a single [2B × C] matrix
-            all_probs = torch.cat([prob, prob_bar], dim=0)      # [2B, C]
-
-            #  apply Sinkhorn to get balanced soft assignments
-            sink = SinkhornKnopp()
-            # sink = SinkhornKnopp(num_iters=args.num_iters_sk, epsilon=args.epsilon_sk)
-            all_pseudo = sink(all_probs)                       # [2B, C], each row sums to 1
-
-            # 1d) split back into two views
-            pseudo, pseudo_bar = all_pseudo[:B], all_pseudo[B:] # each [B, C]
-                        # Enumerate all pairs (i,j) for view1 and view2
-            pseudo_i, pseudo_j = PairEnum(pseudo)            # both [B*B, C]
+            # ===== Pairwise pseudo-labels =====
+            pseudo_i, pseudo_j = PairEnum(pseudo)
             pseudo_bar_i, pseudo_bar_j = PairEnum(pseudo_bar)
 
-            # Soft pairwise label = dot-product of the two soft cluster distributions
-            # (i.e. probability that i and j belong to the same cluster)
-            pairwise_pseudo_label = (pseudo_i * pseudo_j).sum(dim=1)           # [B*B]
-            pairwise_pseudo_label_bar = (pseudo_bar_i * pseudo_bar_j).sum(dim=1)
-            # you could average these two, or use just one view’s labels:
-            pairwise_pseudo_label = 0.5 * (pairwise_pseudo_label + pairwise_pseudo_label_bar)
-            
+            pairwise_pseudo_label = 0.5 * (
+                (pseudo_i * pseudo_j).sum(dim=1) +
+                (pseudo_bar_i * pseudo_bar_j).sum(dim=1)
+            )  # [B*B]
+
             prob_pair, _ = PairEnum(prob)
             _, prob_bar_pair = PairEnum(prob_bar)
-
             bce_loss = criterion_bce(prob_pair, prob_bar_pair, pairwise_pseudo_label)
 
-
-            loss = sharp_loss + w * consistency_loss + w*contrastive_loss +  w_softBCE*bce_loss # calculate the total loss
-            # loss = sharp_loss + w * consistency_loss  + bce_loss # calculate the total loss
+            # ===== Total Loss =====
+            loss = sharp_loss + w * consistency_loss + w * contrastive_loss + w_softBCE * bce_loss
             loss_record.update(loss.item(), x.size(0))
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-        print('Train Epoch: {} Avg Loss: {:.4f}'.format(epoch, loss_record.avg))
 
+        print(f'Train Epoch: {epoch} Avg Loss: {loss_record.avg:.4f}')
+
+        # ===== Evaluate =====
         acc, nmi, ari, probs = test(model, eva_loader, args)
         accuracies.append(acc)
         nmi_scores.append(nmi)
         ari_scores.append(ari)
 
         if epoch % args.update_interval == 0:
-            print('updating target ...')
-            args.p_targets = target_distribution(probs)  # update the target distribution
-    # Create a dictionary that includes the model's state dictionary and the center
-    model_dict = {'state_dict': model.state_dict(), 'center': model.center}
+            print('Updating target distribution...')
+            args.p_targets = target_distribution(probs)
 
-    # Save the dictionary
-    torch.save(model_dict, args.model_dir)
-    print("model saved to {}.".format(args.model_dir))
+    # ===== Save final model =====
+    torch.save({'state_dict': model.state_dict(), 'center': model.center}, args.model_dir)
+    print(f"Model saved to {args.model_dir}.")
 
+    # ===== Plot metrics =====
     plt.figure(figsize=(10, 6))
     epochs_range = range(args.epochs)
     plt.plot(epochs_range, accuracies, label="Accuracy")
@@ -490,7 +496,7 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
     plt.ylabel("Metric Score")
     plt.title("Training Metrics over Epochs")
     plt.legend()
-    plt.savefig(args.model_folder+'/accuracies.png')   
+    plt.savefig(args.model_folder + '/accuracies.png')
 
 def test(model, test_loader, args):
     model.eval()
