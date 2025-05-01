@@ -429,7 +429,7 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
 
             # ===== Sharp loss and consistency =====
             sharp_loss = F.kl_div(prob.log(), args.p_targets[idx].float().to(device)) 
-            consistency_loss = F.mse_loss(prob, prob_bar)  e
+            consistency_loss = F.mse_loss(prob, prob_bar)
 
              # ===== simCLR contrastive loss =====
             z_i, z_j = projector(extracted_feat), projector(extracted_feat_bar) 
