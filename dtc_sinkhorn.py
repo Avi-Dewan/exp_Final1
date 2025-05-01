@@ -444,6 +444,19 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
                     print(f"→ {name}.min: {tensor.min().item()}, max: {tensor.max().item()}")
                     return True
                 return False
+            
+            # === Sanity check on final_feat and model.center ===
+            if torch.isnan(final_feat).any():
+                print("❌ NaN in final_feat")
+            if torch.isnan(model.center).any():
+                print("❌ NaN in model.center")
+            if torch.isinf(final_feat).any():
+                print("❌ Inf in final_feat")
+            if torch.isinf(model.center).any():
+                print("❌ Inf in model.center")
+            print("final_feat stats:", final_feat.min().item(), final_feat.max().item())
+            print("center stats:", model.center.min().item(), model.center.max().item())
+
 
             # Step 1: Raw logits
             logits = -torch.sum((final_feat.unsqueeze(1) - model.center) ** 2, dim=2)
