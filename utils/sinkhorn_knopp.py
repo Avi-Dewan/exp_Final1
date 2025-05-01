@@ -33,17 +33,11 @@ class SinkhornKnopp(torch.nn.Module):
         super().__init__()
         self.num_iters = num_iters
         self.epsilon = epsilon
-
+ 
     @torch.no_grad()
     def forward(self, logits):
         """
-        Applies Sinkhorn-Knopp normalization to logits.
-
-        Steps:
-        1. Exponentiate logits after temperature scaling.
-        2. Normalize the matrix to sum to 1.
-        3. Alternatingly normalize rows and columns.
-        4. Return the balanced assignment matrix (soft labels).
+        Applies numerically stable Sinkhorn-Knopp normalization to logits.
 
         Args:
             logits (Tensor): Raw logits from the model [B, K]
@@ -51,32 +45,25 @@ class SinkhornKnopp(torch.nn.Module):
         Returns:
             Tensor: Soft pseudo-labels [B, K]
         """
+        # Step 0: Stabilize logits before exponentiation
+        logits = logits - logits.max(dim=1, keepdim=True)[0]  # [B, K]
 
-        # Step 1: Apply softmax-like transformation with temperature
-        # Transpose so that rows represent clusters (K), columns represent samples (B)
-        Q = torch.exp(logits / self.epsilon).t()  # Shape: [K, B]
-        Q = Q + 1e-6 # avoid zero entries
+        # Step 1: Softmax-like exponentiation with temperature scaling
+        Q = torch.exp(logits / self.epsilon).t()  # [K, B]
+        Q += 1e-6  # Avoid exact zero
 
-        # Step 2: Normalize the entire matrix to sum to 1 (prevents scaling instability)
-        Q /= Q.sum()  # Q is now a probability distribution over (K × B)
+        # Step 2: Normalize total mass to 1
+        Q /= Q.sum()
 
-        B = Q.shape[1]  # Number of samples
-        K = Q.shape[0]  # Number of clusters
+        B = Q.shape[1]  # #samples
+        K = Q.shape[0]  # #clusters
 
-        # Step 3: Sinkhorn iterations
-        for it in range(self.num_iters):
-            # Row normalization: each cluster (row) should sum to 1/K
-            sum_of_rows = Q.sum(dim=1, keepdim=True)  # Shape: [K, 1]
-            Q /= (sum_of_rows + 1e-6)
-            Q /= K  # Ensures each row sums to 1/K
+        # Step 3: Sinkhorn iterations (row and column normalization)
+        for _ in range(self.num_iters):
+            Q /= (Q.sum(dim=1, keepdim=True) + 1e-6)  # Row norm
+            Q /= K
+            Q /= (Q.sum(dim=0, keepdim=True) + 1e-6)  # Column norm
+            Q /= B
 
-            # Column normalization: each sample (column) should sum to 1/B
-            sum_of_cols = Q.sum(dim=0, keepdim=True)  # Shape: [1, B]
-            Q /= (sum_of_cols +  + 1e-6)
-            Q /= B  # Ensures each column sums to 1/B
-
-        # Step 4: Rescale so each sample's distribution sums to 1
-        Q *= B  # Now columns sum to 1
-
-        # Step 5: Return back in [B, K] format (each row = soft pseudo-label for one sample)
-        return Q.t()
+        Q *= B  # Rescale: columns should sum to 1
+        return Q.t()  # [B, K]
