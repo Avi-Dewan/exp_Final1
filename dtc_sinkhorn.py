@@ -470,6 +470,30 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
             loss = sharp_loss + w * consistency_loss + w*contrastive_loss +  w_softBCE*bce_loss # calculate the total loss
             # loss = sharp_loss + w * consistency_loss  + bce_loss # calculate the total loss
             loss_record.update(loss.item(), x.size(0))
+
+            # ==== NaN Debugging Block ====
+
+            if torch.isnan(bce_loss):
+                print("\n❌ NaN detected in BCE loss!")
+
+                # Check logits_pair and logits_bar_pair
+                if torch.isnan(logits_pair).any():
+                    print("🔴 NaN in logits_pair")
+                if torch.isnan(logits_bar_pair).any():
+                    print("🔴 NaN in logits_bar_pair")
+
+                # Check pseudo-labels
+                if torch.isnan(pairwise_pseudo_label).any():
+                    print("🔴 NaN in pairwise_pseudo_label")
+
+                print("Logits pair stats:", logits_pair.min().item(), logits_pair.max().item())
+                print("Logits bar pair stats:", logits_bar_pair.min().item(), logits_bar_pair.max().item())
+                print("Pseudo-label stats:", pairwise_pseudo_label.min().item(), pairwise_pseudo_label.max().item())
+
+                # Force crash
+                raise ValueError("NaN found in BCE path. Check logs above.")
+
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
