@@ -405,6 +405,8 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
 
     optimizer = SGD(list(model.parameters()) + list(projector.parameters()),
                     lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+    
+    sinkhorn = SinkhornKnopp(num_iters=3, epsilon=0.05)
 
     accuracies, nmi_scores, ari_scores = [], [], []
 
@@ -445,8 +447,7 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
 
             # ===== Sinkhorn soft assignments =====
             logits_all = torch.cat([logits, logits_bar], dim=0)  # [2B, K]
-            sink = SinkhornKnopp(num_iters=args.num_iters_sk, epsilon=args.epsilon_sk)
-            pseudo_all = sink(logits_all)                        # [2B, K]
+            pseudo_all = sinkhorn(logits_all)                        # [2B, K]
             pseudo, pseudo_bar = pseudo_all[:logits.size(0)], pseudo_all[logits.size(0):]
 
             # ===== Pairwise pseudo-labels =====
