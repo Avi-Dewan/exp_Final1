@@ -436,21 +436,19 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
             contrastive_loss = simCLR_loss(z_i, z_j)
 
 
-            # ===== soft BCE loss =====
-            # replace this block with Sinkhorn-based pairwise soft pseudo-labels
+            # ===== soft BCE loss (Sinkhorn) =====
 
             # Compute raw logits (negative squared distances) for Sinkhorn
             logits = -torch.sum((final_feat.unsqueeze(1) - model.center) ** 2, dim=2)         # [B, C]
             logits_bar = -torch.sum((final_feat_bar.unsqueeze(1) - model.center) ** 2, dim=2) # [B, C]
 
-            # Stack logits for both views
+            # Stack logits for both views and apply Sinkhorn
             logits_all = torch.cat([logits, logits_bar], dim=0)  # [2B, C]
-
-            # Apply Sinkhorn to get balanced soft cluster assignments
-            pseudo_all = sinkhorn(logits_all)                    # [2B, C]
+            logits_all = logits_all - logits_all.max()  # improve numerical stability before exp
+            pseudo_all = sinkhorn(logits_all)           # [2B, C]
             pseudo, pseudo_bar = pseudo_all[:logits.size(0)], pseudo_all[logits.size(0):]
 
-            # Compute pairwise soft pseudo labels using dot-product similarity
+            # Pairwise soft pseudo labels from dot product
             pseudo_i, pseudo_j = PairEnum(pseudo)
             pseudo_bar_i, pseudo_bar_j = PairEnum(pseudo_bar)
             pairwise_pseudo_label = 0.5 * (
@@ -459,60 +457,18 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
             )
             pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
 
-            # Use raw logits (not softmax probs) for BCE loss
+            # Raw logits for BCE loss (no softmax)
             logits_pair, _ = PairEnum(logits)
             _, logits_bar_pair = PairEnum(logits_bar)
-            
 
-            # # ===============================
-            # # Step-by-step BCE debug section
-            # # ===============================
+            # Trigger eager evaluation (avoids NaN in some PyTorch/CUDA versions)
+            _ = logits_pair.sum()
+            _ = logits_bar_pair.sum()
+            _ = pairwise_pseudo_label.sum()
 
-            # with torch.no_grad():
-            #     print("\n=== BCE Debug Step-by-Step ===")
-                
-            #     # Step 1: Raw logits
-            #     print("Logits stats:", logits.min().item(), logits.max().item())
-            #     print("Logits_bar stats:", logits_bar.min().item(), logits_bar.max().item())
-            #     if torch.isnan(logits).any() or torch.isnan(logits_bar).any():
-            #         print("❌ NaNs in raw logits!")
-                
-            #     # Step 2: Sinkhorn output
-            #     print("Pseudo stats:", pseudo.min().item(), pseudo.max().item())
-            #     if torch.isnan(pseudo).any() or torch.isnan(pseudo_bar).any():
-            #         print("❌ NaNs in pseudo labels!")
-
-            #     # Step 3: PairEnum on pseudo
-            #     pseudo_i, pseudo_j = PairEnum(pseudo)
-            #     pseudo_bar_i, pseudo_bar_j = PairEnum(pseudo_bar)
-            #     if torch.isnan(pseudo_i).any() or torch.isnan(pseudo_j).any():
-            #         print("❌ NaNs in pseudo_i/pseudo_j")
-                
-            #     # Step 4: Pairwise pseudo label
-            #     pairwise_pseudo_label = 0.5 * (
-            #         (pseudo_i * pseudo_j).sum(dim=1) +
-            #         (pseudo_bar_i * pseudo_bar_j).sum(dim=1)
-            #     )
-            #     print("Pairwise pseudo-label stats:", pairwise_pseudo_label.min().item(), pairwise_pseudo_label.max().item())
-            #     if torch.isnan(pairwise_pseudo_label).any():
-            #         print("❌ NaNs in pairwise_pseudo_label!")
-
-            #     # Step 5: Raw logits pair
-            #     logits_pair, _ = PairEnum(logits)
-            #     _, logits_bar_pair = PairEnum(logits_bar)
-            #     print("Logits pair stats:", logits_pair.min().item(), logits_pair.max().item())
-            #     print("Logits bar pair stats:", logits_bar_pair.min().item(), logits_bar_pair.max().item())
-            #     if torch.isnan(logits_pair).any() or torch.isnan(logits_bar_pair).any():
-            #         print("❌ NaNs in logits_pair / logits_bar_pair!")
-
-            #     # Step 6: Final BCE input check
-            #     if torch.isnan(pairwise_pseudo_label).any() or torch.isnan(logits_pair).any():
-            #         print("❌ Skipping BCE due to NaN")
-            #         raise ValueError("BCE loss input contains NaNs!")
-
-
-
+            # Compute BCE loss
             bce_loss = criterion_bce(logits_pair, logits_bar_pair, pairwise_pseudo_label)
+
 
 
 
