@@ -414,88 +414,82 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
         loss_record = AverageMeter()
         model.train()
 
-        # ramp-up coefficients
-        w = args.rampup_coefficient * ramps.sigmoid_rampup(epoch, args.rampup_length)
-        w_softBCE = args.rampup_coefficient_softBCE * ramps.sigmoid_rampup(epoch, args.rampup_length_softBCE)
+        w = args.rampup_coefficient * ramps.sigmoid_rampup(epoch, args.rampup_length)  # co_eff = 10, length = 5
+        w_softBCE = args.rampup_coefficient_softBCE * ramps.sigmoid_rampup(epoch, args.rampup_length_softBCE)  # co_eff = 20, length = 10
 
         for batch_idx, ((x, x_bar), label, idx) in enumerate(tqdm(train_loader)):
-            x, x_bar = x.to(device), x_bar.to(device)
 
             # Feature extraction
+            x, x_bar = x.to(device), x_bar.to(device)
             extracted_feat, final_feat = model(x)
-            extracted_feat_bar, final_feat_bar = model(x_bar)
+            extracted_feat_bar, final_feat_bar = model(x_bar)  #
 
-            # ===== Compute raw logits (before normalization) =====
-            diff = final_feat.unsqueeze(1) - model.center  # [B, K, D]
-            dists = torch.sum(diff ** 2, dim=2)            # [B, K]
-            logits = -dists                                
+            prob = feat2prob(final_feat, model.center)
+            prob_bar = feat2prob(final_feat_bar, model.center) 
 
-            diff_bar = final_feat_bar.unsqueeze(1) - model.center
-            dists_bar = torch.sum(diff_bar ** 2, dim=2)
-            logits_bar = -dists_bar
+            # ===== Sharp loss and consistency =====
+            sharp_loss = F.kl_div(prob.log(), args.p_targets[idx].float().to(device)) 
+            consistency_loss = F.mse_loss(prob, prob_bar)  e
 
-            # ===== Self-training target and consistency =====
-            prob = F.softmax(logits, dim=1)
-            prob_bar = F.softmax(logits_bar, dim=1)
-
-            sharp_loss = F.kl_div(prob.log(), args.p_targets[idx].float().to(device))
-            consistency_loss = F.mse_loss(prob, prob_bar)
-
-            # ===== SimCLR contrastive loss =====
-            z_i, z_j = projector(extracted_feat), projector(extracted_feat_bar)
+             # ===== simCLR contrastive loss =====
+            z_i, z_j = projector(extracted_feat), projector(extracted_feat_bar) 
             contrastive_loss = simCLR_loss(z_i, z_j)
 
-            # ===== Sinkhorn soft assignments =====
-            logits_all = torch.cat([logits, logits_bar], dim=0)  # [2B, K]
-            pseudo_all = sinkhorn(logits_all)                        # [2B, K]
+
+            # ===== soft BCE loss =====
+            # replace this block with Sinkhorn-based pairwise soft pseudo-labels
+
+            # Compute raw logits (negative squared distances) for Sinkhorn
+            logits = -torch.sum((final_feat.unsqueeze(1) - model.center) ** 2, dim=2)         # [B, C]
+            logits_bar = -torch.sum((final_feat_bar.unsqueeze(1) - model.center) ** 2, dim=2) # [B, C]
+
+            # Stack logits for both views
+            logits_all = torch.cat([logits, logits_bar], dim=0)  # [2B, C]
+
+            # Apply Sinkhorn to get balanced soft cluster assignments
+            pseudo_all = sinkhorn(logits_all)                    # [2B, C]
             pseudo, pseudo_bar = pseudo_all[:logits.size(0)], pseudo_all[logits.size(0):]
 
-            # ===== Pairwise pseudo-labels =====
+            # Compute pairwise soft pseudo labels using dot-product similarity
             pseudo_i, pseudo_j = PairEnum(pseudo)
             pseudo_bar_i, pseudo_bar_j = PairEnum(pseudo_bar)
-
             pairwise_pseudo_label = 0.5 * (
                 (pseudo_i * pseudo_j).sum(dim=1) +
                 (pseudo_bar_i * pseudo_bar_j).sum(dim=1)
-            )  # [B*B]
+            )
+            pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
 
-            prob_pair, _ = PairEnum(prob)
-            _, prob_bar_pair = PairEnum(prob_bar)
-            bce_loss = criterion_bce(prob_pair, prob_bar_pair, pairwise_pseudo_label)
+            # Use raw logits (not softmax probs) for BCE loss
+            logits_pair, _ = PairEnum(logits)
+            _, logits_bar_pair = PairEnum(logits_bar)
 
-            # ===== Total Loss =====
-            loss = sharp_loss + w * consistency_loss + w * contrastive_loss + w_softBCE * bce_loss
+            bce_loss = criterion_bce(logits_pair, logits_bar_pair, pairwise_pseudo_label)
+
+
+
+            loss = sharp_loss + w * consistency_loss + w*contrastive_loss +  w_softBCE*bce_loss # calculate the total loss
+            # loss = sharp_loss + w * consistency_loss  + bce_loss # calculate the total loss
             loss_record.update(loss.item(), x.size(0))
-
-            if torch.isnan(loss):
-                print("NaN detected in loss.")
-                print("Max prob:", prob.max().item(), "Min prob:", prob.min().item())
-                print("Any NaN in prob?", torch.isnan(prob).any().item())
-                print("Any NaN in pseudo?", torch.isnan(pseudo).any().item())
-                exit(1)
-
-
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+        print('Train Epoch: {} Avg Loss: {:.4f}'.format(epoch, loss_record.avg))
 
-        print(f'Train Epoch: {epoch} Avg Loss: {loss_record.avg:.4f}')
-
-        # ===== Evaluate =====
         acc, nmi, ari, probs = test(model, eva_loader, args)
         accuracies.append(acc)
         nmi_scores.append(nmi)
         ari_scores.append(ari)
 
         if epoch % args.update_interval == 0:
-            print('Updating target distribution...')
-            args.p_targets = target_distribution(probs)
+            print('updating target ...')
+            args.p_targets = target_distribution(probs)  # update the target distribution
+    # Create a dictionary that includes the model's state dictionary and the center
+    model_dict = {'state_dict': model.state_dict(), 'center': model.center}
 
-    # ===== Save final model =====
-    torch.save({'state_dict': model.state_dict(), 'center': model.center}, args.model_dir)
-    print(f"Model saved to {args.model_dir}.")
+    # Save the dictionary
+    torch.save(model_dict, args.model_dir)
+    print("model saved to {}.".format(args.model_dir))
 
-    # ===== Plot metrics =====
     plt.figure(figsize=(10, 6))
     epochs_range = range(args.epochs)
     plt.plot(epochs_range, accuracies, label="Accuracy")
@@ -505,7 +499,8 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
     plt.ylabel("Metric Score")
     plt.title("Training Metrics over Epochs")
     plt.legend()
-    plt.savefig(args.model_folder + '/accuracies.png')
+    plt.savefig(args.model_folder+'/accuracies.png') 
+
 
 def test(model, test_loader, args):
     model.eval()
