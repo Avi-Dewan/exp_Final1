@@ -467,6 +467,14 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
             loss = sharp_loss + w * consistency_loss + w * contrastive_loss + w_softBCE * bce_loss
             loss_record.update(loss.item(), x.size(0))
 
+            if torch.isnan(loss):
+                print("NaN detected in loss.")
+                print("Max prob:", prob.max().item(), "Min prob:", prob.min().item())
+                print("Any NaN in prob?", torch.isnan(prob).any().item())
+                print("Any NaN in pseudo?", torch.isnan(pseudo).any().item())
+                exit(1)
+
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
