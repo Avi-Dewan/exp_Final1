@@ -486,24 +486,41 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
             pseudo_i, pseudo_j = PairEnum(pseudo)
             pseudo_bar_i, pseudo_bar_j = PairEnum(pseudo_bar)
 
-            pairwise_pseudo_label = 0.5 * (
+            # === Sinkhorn pseudo-label (s_label)
+            s_label = 0.5 * (
                 (pseudo_i * pseudo_j).sum(dim=1) +
                 (pseudo_bar_i * pseudo_bar_j).sum(dim=1)
             )
+
+            # === Ranking-based pseudo-label (r_label)
+            rank_feat = extracted_feat.detach()
+            rank_idx = torch.argsort(rank_feat, dim=1, descending=True)
+            rank_idx1, rank_idx2 = PairEnum(rank_idx)
+            rank_idx1, rank_idx2 = rank_idx1[:, :args.topk], rank_idx2[:, :args.topk]
+            rank_idx1, _ = torch.sort(rank_idx1, dim=1)
+            rank_idx2, _ = torch.sort(rank_idx2, dim=1)
+            matches = (rank_idx1.unsqueeze(2) == rank_idx2.unsqueeze(1)).sum(dim=2)
+            common_elements = matches.sum(dim=1)
+            r_label = common_elements.float() / args.topk
+
+            # === Final combined pseudo-label
+            alpha = args.mix_alpha  # new argument, e.g. 0.5
+            pairwise_pseudo_label = (1 - alpha) * r_label + alpha * s_label
+            pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
+
             if check_nan("pairwise_pseudo_label (before clamp)", pairwise_pseudo_label):
                 raise ValueError("NaN in pairwise pseudo label calc")
 
             pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
 
-            # Step 5: BCE inputs - raw logits
-            logits_pair, _ = PairEnum(prob)
-            _, logits_bar_pair = PairEnum(prob_bar)
+          
+            prob_pair, _ = PairEnum(prob)
+            _, prob_bar_pair = PairEnum(prob_bar)
 
-            if check_nan("logits_pair", logits_pair) or check_nan("logits_bar_pair", logits_bar_pair):
-                raise ValueError("NaN in BCE input logits")
 
             # Step 6: Final BCE
-            bce_loss = criterion_bce(logits_pair, logits_bar_pair, pairwise_pseudo_label)
+            bce_loss = criterion_bce(prob_pair, prob_bar_pair, pairwise_pseudo_label)
+
             if torch.isnan(bce_loss):
                 raise ValueError("❌ Final BCE loss is NaN!")
 
