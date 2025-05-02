@@ -459,12 +459,17 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
 
 
             # Step 1: Raw logits
-            logits = -torch.sum((final_feat.unsqueeze(1) - model.center) ** 2, dim=2)
-            logits_bar = -torch.sum((final_feat_bar.unsqueeze(1) - model.center) ** 2, dim=2)
+            temp = 0.1
+            logits = -torch.sum((final_feat.unsqueeze(1) - model.center) ** 2, dim=2) / temp
+            logits_bar = -torch.sum((final_feat_bar.unsqueeze(1) - model.center) ** 2, dim=2) / temp
 
             if check_nan("logits", logits) or check_nan("logits_bar", logits_bar):
                 raise ValueError("NaN in logits computation")
+            
+            logits = (logits - logits.mean(dim=1, keepdim=True)) / logits.std(dim=1, keepdim=True)
+            logits_bar = (logits_bar - logits_bar.mean(dim=1, keepdim=True)) / logits_bar.std(dim=1, keepdim=True)
 
+            
             # Step 2: Sinkhorn input stability
             logits_all = torch.cat([logits, logits_bar], dim=0)
             logits_all = logits_all - logits_all.max()  # stability
@@ -491,8 +496,8 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
             pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
 
             # Step 5: BCE inputs - raw logits
-            logits_pair, _ = PairEnum(prob)
-            _, logits_bar_pair = PairEnum(prob_bar)
+            logits_pair, _ = PairEnum(logits)
+            _, logits_bar_pair = PairEnum(logits_bar)
 
             if check_nan("logits_pair", logits_pair) or check_nan("logits_bar_pair", logits_bar_pair):
                 raise ValueError("NaN in BCE input logits")
@@ -501,7 +506,6 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
             bce_loss = criterion_bce(logits_pair, logits_bar_pair, pairwise_pseudo_label)
             if torch.isnan(bce_loss):
                 raise ValueError("❌ Final BCE loss is NaN!")
-
 
 
 
