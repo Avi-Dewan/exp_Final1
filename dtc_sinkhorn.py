@@ -401,7 +401,7 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
     """
     simCLR_loss = SimCLR_Loss(batch_size=args.batch_size, temperature=0.5).to(device)
     projector = ProjectionHead(512 * BasicBlock.expansion, 2048, 128).to(device)
-    criterion_bce = softBCE(use_logits=False)
+    criterion_bce = softBCE_N()
 
     optimizer = SGD(list(model.parameters()) + list(projector.parameters()),
                     lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
