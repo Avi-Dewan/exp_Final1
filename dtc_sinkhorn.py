@@ -504,7 +504,9 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
             r_label = common_elements.float() / args.topk
 
             # === Final combined pseudo-label
-            alpha = args.mix_alpha  # new argument, e.g. 0.5
+            # alpha = args.mix_alpha  # new argument, e.g. 0.5
+            alpha = 0.5  # new argument, e.g. 0.5
+
             pairwise_pseudo_label = (1 - alpha) * r_label + alpha * s_label
             pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
 
