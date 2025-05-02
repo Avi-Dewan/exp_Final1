@@ -109,7 +109,38 @@ class softBCE_N(nn.Module):
         # Compute BCE loss with logits
         loss = self.bce_with_logits(pair_logits, simi)
         return loss
+    
+class softBCE(nn.Module):
+    def __init__(self, use_logits=True):
+        """
+        Binary cross-entropy for pairwise similarity.
 
+        Args:
+            use_logits (bool): 
+                - True → expects logits, uses BCEWithLogitsLoss.
+                - False → expects probabilities, uses BCELoss.
+        """
+        super().__init__()
+        self.use_logits = use_logits
+        if self.use_logits:
+            self.loss_fn = nn.BCEWithLogitsLoss(reduction='mean')
+        else:
+            self.loss_fn = nn.BCELoss(reduction='mean')
+
+    def forward(self, sim1, sim2, pairwise_label):
+        """
+        Args:
+            sim1, sim2: [N, D] tensors of features or probabilities.
+            pairwise_label: [N] soft labels between 0 and 1.
+        """
+        if self.use_logits:
+            # Dot product before sigmoid
+            similarity = (sim1 * sim2).sum(dim=1)  # shape: [N]
+        else:
+            # Already in probability form
+            similarity = (sim1 * sim2).sum(dim=1).clamp(min=1e-6, max=1 - 1e-6)
+
+        return self.loss_fn(similarity, pairwise_label)
 
 def PairEnum(x,mask=None):
     # Enumerate all pairs of feature in x
