@@ -454,8 +454,8 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
                 print("❌ Inf in final_feat")
             if torch.isinf(model.center).any():
                 print("❌ Inf in model.center")
-            print("final_feat stats:", final_feat.min().item(), final_feat.max().item())
-            print("center stats:", model.center.min().item(), model.center.max().item())
+            # print("final_feat stats:", final_feat.min().item(), final_feat.max().item())
+            # print("center stats:", model.center.min().item(), model.center.max().item())
 
 
             # Step 1: Raw logits
