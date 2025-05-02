@@ -491,8 +491,8 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
             pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
 
             # Step 5: BCE inputs - raw logits
-            logits_pair, _ = PairEnum(logits)
-            _, logits_bar_pair = PairEnum(logits_bar)
+            logits_pair, _ = PairEnum(prob)
+            _, logits_bar_pair = PairEnum(prob_bar)
 
             if check_nan("logits_pair", logits_pair) or check_nan("logits_bar_pair", logits_bar_pair):
                 raise ValueError("NaN in BCE input logits")
