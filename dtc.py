@@ -392,7 +392,6 @@ def PI_CL_BCE_train(model, train_loader, eva_loader, args):
             z_i, z_j = projector(extracted_feat), projector(extracted_feat_bar) 
             contrastive_loss = simCLR_loss(z_i, z_j)
 
-
             #BCE
             rank_feat = extracted_feat.detach()
             rank_idx = torch.argsort(rank_feat, dim=1, descending=True) # [68, 512] --> index of features. sorted by value
@@ -480,7 +479,6 @@ def PI_CL_myBCE_train(model, train_loader, eva_loader, args):
             # simCLR loss
             z_i, z_j = projector(extracted_feat), projector(extracted_feat_bar) 
             contrastive_loss = simCLR_loss(z_i, z_j)
-
 
             #BCE
             rank_feat = extracted_feat.detach()
