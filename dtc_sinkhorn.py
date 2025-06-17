@@ -587,31 +587,43 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
     plt.savefig(args.model_folder+'/accuracies.png') 
 
 
-def flatten_gradients(grads):
-    return torch.cat([g.view(-1) for g in grads if g is not None])
+def flatten_gradients(grads, reference_params):
+    flat_grads = []
+    for g, p in zip(grads, reference_params):
+        # Use the gradient if available; otherwise, use a zero tensor
+        if g is None:
+            flat_grads.append(torch.zeros_like(p).view(-1))
+        else:
+            flat_grads.append(g.view(-1))
+    return torch.cat(flat_grads)
 
-def compute_cosine_similarity(g1, g2):
-    return F.cosine_similarity(flatten_gradients(g1), flatten_gradients(g2), dim=0).item()
+def compute_cosine_similarity(g1, g2, reference_params):
+    fg1 = flatten_gradients(g1, reference_params)
+    fg2 = flatten_gradients(g2, reference_params)
+    return F.cosine_similarity(fg1, fg2, dim=0).item()
 
 def compute_all_grad_similarities(model, losses_dict):
     """
-    Given a dictionary of named losses, this returns a dictionary of pairwise cosine similarities
+    Given a dictionary of named losses, this returns a dictionary of pairwise cosine similarities.
     """
     grads = {}
     similarities = {}
 
-    # Compute gradients for each loss
+    # Compute gradients for each loss ensuring full parameter coverage
     for loss_name, loss_value in losses_dict.items():
         model.zero_grad()
         loss_value.backward(retain_graph=True)
-        grads[loss_name] = [p.grad.clone() for p in model.parameters() if p.grad is not None]
+        grads[loss_name] = [
+            p.grad.clone() if p.grad is not None else torch.zeros_like(p)
+            for p in model.parameters()
+        ]
 
-    # Compute pairwise cosine similarities
+    # Compute pairwise cosine similarities between the gradients of each loss
     loss_names = list(losses_dict.keys())
     for i in range(len(loss_names)):
         for j in range(i + 1, len(loss_names)):
             l1, l2 = loss_names[i], loss_names[j]
-            sim = compute_cosine_similarity(grads[l1], grads[l2])
+            sim = compute_cosine_similarity(grads[l1], grads[l2], list(model.parameters()))
             similarities[f"{l1}_vs_{l2}"] = sim
 
     return similarities
