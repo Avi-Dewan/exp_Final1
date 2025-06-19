@@ -20,6 +20,7 @@ import torchvision.transforms as transforms
 
 # Imbalance config
 from collections import defaultdict
+import ast
 
 def apply_class_imbalance(dataset, imbalance_config, seed=42):
     """
@@ -286,6 +287,7 @@ def CIFAR10Data(root, split='train', aug=None, target_list=range(5), imbalance_c
     dataset = CIFAR10(root=root, split=split, transform=transform, target_list=target_list)
     
     if imbalance_config is not None:
+        imbalance_config = ast.literal_eval(imbalance_config)
         apply_class_imbalance(dataset, imbalance_config)
 
     
