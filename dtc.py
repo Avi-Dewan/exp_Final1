@@ -392,7 +392,6 @@ def PI_CL_BCE_train(model, train_loader, eva_loader, args):
             z_i, z_j = projector(extracted_feat), projector(extracted_feat_bar) 
             contrastive_loss = simCLR_loss(z_i, z_j)
 
-
             #BCE
             rank_feat = extracted_feat.detach()
             rank_idx = torch.argsort(rank_feat, dim=1, descending=True) # [68, 512] --> index of features. sorted by value
@@ -481,7 +480,6 @@ def PI_CL_myBCE_train(model, train_loader, eva_loader, args):
             z_i, z_j = projector(extracted_feat), projector(extracted_feat_bar) 
             contrastive_loss = simCLR_loss(z_i, z_j)
 
-
             #BCE
             rank_feat = extracted_feat.detach()
             rank_idx = torch.argsort(rank_feat, dim=1, descending=True) # [68, 512] --> index of features. sorted by value
@@ -534,7 +532,7 @@ def PI_CL_myBCE_train(model, train_loader, eva_loader, args):
     plt.title("Training Metrics over Epochs")
     plt.legend()
     plt.savefig(args.model_folder+'/accuracies.png')   
-
+    
 def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
     '''
     Sharpening the probability distribution and enforcing consistency with different augmentations
@@ -601,11 +599,11 @@ def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
 
 
             loss = sharp_loss + w * consistency_loss + w*contrastive_loss +  w_softBCE*bce_loss # calculate the total loss
-            # loss = sharp_loss + w * consistency_loss  + bce_loss # calculate the total loss
             loss_record.update(loss.item(), x.size(0))
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+
         print('Train Epoch: {} Avg Loss: {:.4f}'.format(epoch, loss_record.avg))
 
         acc, nmi, ari, probs = test(model, eva_loader, args)
@@ -992,6 +990,10 @@ if __name__ == "__main__":
     parser.add_argument('--model_name', type=str, default='resnet18')
     parser.add_argument('--save_txt_name', type=str, default='result.txt')
     parser.add_argument('--DTC', type=str, default='PI')
+    
+    parser.add_argument("--imbalance_config", type=str, default=None, help="Class imbalance configuration (e.g., [{'class': 9, 'percentage': 20}, {'class': 7, 'percentage': 5}])")
+
+    
     args = parser.parse_args()
     args.cuda = torch.cuda.is_available()
     device = torch.device("cuda" if args.cuda else "cpu")
@@ -1007,7 +1009,7 @@ if __name__ == "__main__":
 
     print("Arguments: ", args)
 
-    train_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='twice', shuffle=True, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes))
+    train_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='twice', shuffle=True, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
     eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes))
 
 
