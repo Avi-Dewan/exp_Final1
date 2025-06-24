@@ -434,14 +434,14 @@ if __name__ == "__main__":
 
     model = ResNetMultiHead(BasicBlock, [2, 2, 2, 2], 
                         feat_dim=512, 
-                        num_classes=5, 
+                        n_labeled_classes=5, 
+                        n_unlabeled_classes=5,
                         proj_dim_cl=128, 
                         proj_dim_unlabeled=20).to(device)
     
     model.encoder.load_state_dict(init_feat_extractor.state_dict(), strict=False)
 
-    model.encoder.center= Parameter(torch.Tensor(args.n_unlabeled_classes, 20))
-    model.encoder.center.data = torch.tensor(init_centers).float().to(device)
+    model.center.data = torch.tensor(init_centers).float().to(device)
     
 
     print(model)
