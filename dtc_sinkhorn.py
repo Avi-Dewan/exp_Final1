@@ -66,20 +66,28 @@ def warmup_train(model, train_loader, eva_loader, args):
     After warmup , update the target distribution
     '''
     optimizer = SGD(model.parameters(), lr=args.warmup_lr, momentum=args.momentum, weight_decay=args.weight_decay)
+
     for epoch in range(args.warmup_epochs):
         loss_record = AverageMeter()
+
         model.train()
+
         for batch_idx, ((x, _), label, idx) in enumerate(tqdm(train_loader)):
             x = x.to(device)
+
             _, final_feat = model(x) # model.forward() returns two values: Extracted Features(extracted_feat), Final Features(final_feat)
             prob = feat2prob(final_feat, model.center) # get the probability distribution by calculating distance from the center
             loss = F.kl_div(prob.log(), args.p_targets[idx].float().to(device)) # calculate the KL divergence loss between the probability distribution and the target distribution
+            
             loss_record.update(loss.item(), x.size(0))
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+
         print('Warmup_train Epoch: {} Avg Loss: {:.4f}'.format(epoch, loss_record.avg))
         _, _, _, probs = test(model, eva_loader, args)
+        
     args.p_targets = target_distribution(probs)  # update the target distribution
 
 def Baseline_train(model, train_loader, eva_loader, args):
@@ -293,17 +301,16 @@ def PI_TE_train(model, train_loader, eva_loader, args):
 
 
 def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
-    '''
-    Sharpening the probability distribution and enforcing consistency with different augmentations
-    '''
-
+ 
     simCLR_loss = SimCLR_Loss(batch_size = args.batch_size, temperature = 0.5).to(device)
     projector = ProjectionHead(512 * BasicBlock.expansion, 2048, 128).to(device)
     criterion_bce = softBCE_N()
 
     optimizer = SGD(list(model.parameters()) + list(projector.parameters()), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+
     w = 0
     w_softBCE = 0
+
     # Lists to store metrics for each epoch
     accuracies = []
     nmi_scores = []
@@ -311,13 +318,17 @@ def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
 
     for epoch in range(args.epochs):
         loss_record = AverageMeter()
+
         model.train()
+
         w = args.rampup_coefficient * ramps.sigmoid_rampup(epoch, args.rampup_length)  # co_eff = 10, length = 5
         w_softBCE = args.rampup_coefficient_softBCE * ramps.sigmoid_rampup(epoch, args.rampup_length_softBCE)  # co_eff = 20, length = 10
+
         for batch_idx, ((x, x_bar), label, idx) in enumerate(tqdm(train_loader)):
             x, x_bar = x.to(device), x_bar.to(device)
             extracted_feat, final_feat = model(x) # model.forward() returns two values: Extracted Features(extracted_feat), Final Features(final_feat)
             extracted_feat_bar, final_feat_bar = model(x_bar)  # get the feature of the augmented image
+
             prob = feat2prob(final_feat, model.center) # get the probability distribution by calculating distance from the center
             prob_bar = feat2prob(final_feat_bar, model.center) #  get the probability distribution of the augmented image
            
@@ -328,7 +339,6 @@ def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
             z_i, z_j = projector(extracted_feat), projector(extracted_feat_bar) 
             contrastive_loss = simCLR_loss(z_i, z_j)
 
-
             #BCE
             rank_feat = extracted_feat.detach()
             rank_idx = torch.argsort(rank_feat, dim=1, descending=True) # [68, 512] --> index of features. sorted by value
@@ -337,17 +347,14 @@ def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
             rank_idx1, _ = torch.sort(rank_idx1, dim=1) # [68*68, 5]
             rank_idx2, _ = torch.sort(rank_idx2, dim=1) # [68*68, 5]
 
-            # rank_diff = rank_idx1 - rank_idx2 # [68*68, 5]
-            # rank_diff = torch.sum(torch.abs(rank_diff), dim=1) # [68*68]
-            # pairwise_pseudo_label = torch.ones_like(rank_diff).float().to(device) # [68*68] of one
-            # pairwise_pseudo_label[rank_diff>0] = -1  #  [68*68] [if rank_diff is not zero it is -1 (pairwise psuedo label = 0), else it remains 1 ( pairwise psuedo label = 1 ) ]
-            
             # Expand rank_idx1 and rank_idx2 for broadcasting
             rank_idx1 = rank_idx1.unsqueeze(2) # Shape: [68*68, 5, 1]
             rank_idx2 = rank_idx2.unsqueeze(1) # Shape: [68*68, 1, 5]
+        
             # Compare all elements and count matches
             matches = (rank_idx1 == rank_idx2).sum(dim=2)  # Shape: [68*68, 5]
             common_elements = matches.sum(dim=1)          # Shape: [68*68]
+
             # Calculate soft pseudo-label
             pairwise_pseudo_label = common_elements.float() / args.topk
 
@@ -356,13 +363,14 @@ def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
 
             bce_loss = criterion_bce(prob_pair, prob_bar_pair, pairwise_pseudo_label)
 
-
             loss = sharp_loss + w * consistency_loss + w*contrastive_loss +  w_softBCE*bce_loss # calculate the total loss
-            # loss = sharp_loss + w * consistency_loss  + bce_loss # calculate the total loss
+
             loss_record.update(loss.item(), x.size(0))
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+
         print('Train Epoch: {} Avg Loss: {:.4f}'.format(epoch, loss_record.avg))
 
         acc, nmi, ari, probs = test(model, eva_loader, args)
@@ -373,6 +381,7 @@ def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
         if epoch % args.update_interval == 0:
             print('updating target ...')
             args.p_targets = target_distribution(probs)  # update the target distribution
+
     # Create a dictionary that includes the model's state dictionary and the center
     model_dict = {'state_dict': model.state_dict(), 'center': model.center}
 
@@ -773,20 +782,29 @@ def PI_CL_softBCE_train_Gradient_Similarities(model, train_loader, eva_loader, a
 
 def test(model, test_loader, args):
     model.eval()
+
     preds=np.array([])
     targets=np.array([])
     probs= np.zeros((len(test_loader.dataset), args.n_unlabeled_classes))
+
     for batch_idx, (x, label, idx) in enumerate(tqdm(test_loader)):
         x, label = x.to(device), label.to(device)
+
         _, final_feat = model(x) # model.forward() returns two values: Extracted Features(extracted_feat), Final Features(final_feat)
+
         prob = feat2prob(final_feat, model.center) # get the probability distribution by calculating distance from the center
+
         _, pred = prob.max(1)
+
         targets=np.append(targets, label.cpu().numpy())
         preds=np.append(preds, pred.cpu().numpy())
         idx = idx.data.cpu().numpy()
         probs[idx, :] = prob.cpu().detach().numpy()
+
     acc, nmi, ari = cluster_acc(targets.astype(int), preds.astype(int)), nmi_score(targets, preds), ari_score(targets, preds)
+
     print('Test acc {:.4f}, nmi {:.4f}, ari {:.4f}'.format(acc, nmi, ari))
+
     probs = torch.from_numpy(probs)
 
     return acc, nmi, ari, probs 
@@ -795,6 +813,7 @@ def test(model, test_loader, args):
 def plot_tsne(model, test_loader, args):
     """Generates a t-SNE plot of the learned features."""
     model.eval()
+
     feats = np.zeros((len(test_loader.dataset), 20))
     targets = np.array([])
     
@@ -802,6 +821,7 @@ def plot_tsne(model, test_loader, args):
         x, label = x.to(device), label.to(device)
         
         _, final_feat = model(x)  # model.forward() returns two values: Extracted Features(extracted_feat), Final Features(final_feat)
+
         targets = np.append(targets, label.cpu().numpy())
         idx = idx.data.cpu().numpy()
         feats[idx, :] = final_feat.cpu().detach().numpy()
@@ -819,6 +839,7 @@ def plot_tsne(model, test_loader, args):
 def plot_pdf(model, test_loader, args):
     """Generates PDF plots for intermediate features, final outputs, and a combined overlay plot."""
     model.eval()
+
     extracted_feats = np.zeros((len(test_loader.dataset), 512))
     final_feats = np.zeros((len(test_loader.dataset), 20))
     
@@ -897,18 +918,20 @@ if __name__ == "__main__":
     parser.add_argument('--model_name', type=str, default='resnet18')
     parser.add_argument('--save_txt_name', type=str, default='result.txt')
     parser.add_argument('--DTC', type=str, default='PI')
-
     parser.add_argument("--imbalance_config", type=str, default=None, help="Class imbalance configuration (e.g., [{'class': 9, 'percentage': 20}, {'class': 7, 'percentage': 5}])")
 
     args = parser.parse_args()
     args.cuda = torch.cuda.is_available()
     device = torch.device("cuda" if args.cuda else "cpu")
+
     seed_torch(args.seed)
 
-    runner_name = os.path.basename(__file__).split(".")[0] 
+    runner_name = os.path.basename(__file__).split(".")[0]
     model_dir= args.exp_root + '{}/{}'.format(runner_name, args.DTC)
+
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
+
     args.model_folder = model_dir
     args.model_dir = model_dir+'/'+args.model_name+'.pth'
     args.save_txt_path= args.exp_root+ '{}/{}/{}'.format(runner_name, args.DTC, args.save_txt_name)
@@ -918,10 +941,8 @@ if __name__ == "__main__":
     train_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='twice', shuffle=True, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
     eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes))
 
-
     model = ResNet(BasicBlock, [2,2,2,2], 5).to(device)
     model.load_state_dict(torch.load(args.pretrain_dir, weights_only=True), strict=False)
-    # model.load_state_dict(torch.load(args.pretrain_dir), strict=False)
     model.linear= Identity()
     init_feat_extractor = model
     init_acc, init_nmi, init_ari, init_centers, init_probs = init_prob_kmeans(init_feat_extractor, eval_loader, args)
@@ -938,6 +959,7 @@ if __name__ == "__main__":
 
     print(model)
     print('---------------------------------')
+
     for name, param in model.named_parameters(): 
         if 'linear' not in name and 'layer4' not in name:
             param.requires_grad = False
@@ -947,44 +969,35 @@ if __name__ == "__main__":
 
     if args.DTC == 'Baseline':
         Baseline_train(model, train_loader, eval_loader, args)
+
     elif args.DTC == 'PI':
         PI_train(model, train_loader, eval_loader, args)
+
     elif args.DTC == 'TE':
         TE_train(model, train_loader, eval_loader, args)
+
     elif args.DTC == 'TEP':
         TEP_train(model, train_loader, eval_loader, args)
+
     elif args.DTC == 'PI_TE':
         PI_TE_train(model, train_loader, eval_loader, args)
+
     elif args.DTC == 'PI_CL_softBCE':
         PI_CL_softBCE_train(model, train_loader, eval_loader, args)
+
     elif args.DTC == 'sinkhorn_softBCE':
         PI_CL_softBCE_sinkhorn_train(model, train_loader, eval_loader, args)
+
     elif args.DTC == 'PI_CL_softBCE_gradSim':
         PI_CL_softBCE_train_Gradient_Similarities(model, train_loader, eval_loader, args)
   
-    # Final ACC and plot tsne and pdf
+
     acc, nmi, ari, _ = test(model, eval_loader, args)
-    # plot_tsne(model, eval_loader, args)
-    # plot_pdf(model, eval_loader, args)
+    
 
     print('Init ACC {:.4f}, NMI {:.4f}, ARI {:.4f}'.format(init_acc, init_nmi, init_ari))
     print('Final ACC {:.4f}, NMI {:.4f}, ARI {:.4f}'.format(acc, nmi, ari))
+
     if args.save_txt:
         with open(args.save_txt_path, 'a') as f:
             f.write("{:.4f}, {:.4f}, {:.4f}\n".format(acc, nmi, ari))
-
-    # print("Testing if properly saved")
-    # # Load the dictionary
-    # model_dict = torch.load(args.model_dir)
-
-    # # Create the model with clusters
-    # model = ResNet(BasicBlock, [2,2,2,2], args.n_unlabeled_classes).to(device)
-
-    # # Load the state dictionary into the model
-    # model.load_state_dict(model_dict['state_dict'], strict=False)
-
-    # # Load the center
-    # model.center = Parameter(model_dict['center'])
-
-    # acc, nmi, ari, _ = test(model, eval_loader, args,False)
-    # print('Final ACC {:.4f}, NMI {:.4f}, ARI {:.4f}'.format(acc, nmi, ari))

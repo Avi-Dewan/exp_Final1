@@ -1015,7 +1015,6 @@ if __name__ == "__main__":
 
     model = ResNet(BasicBlock, [2,2,2,2], 5).to(device)
     model.load_state_dict(torch.load(args.pretrain_dir, weights_only=True), strict=False)
-    # model.load_state_dict(torch.load(args.pretrain_dir), strict=False)
     model.linear= Identity()
     init_feat_extractor = model
     init_acc, init_nmi, init_ari, init_centers, init_probs = init_prob_kmeans(init_feat_extractor, eval_loader, args)
@@ -1061,6 +1060,8 @@ if __name__ == "__main__":
         Integrated_loss_train(model, train_loader, eval_loader, args)
     elif args.DTC == 'integrate_loss_normalized':
         Integrated_loss_normalized_train(model, train_loader, eval_loader, args)
+
+        
     # Final ACC and plot tsne and pdf
     acc, nmi, ari, _ = test(model, eval_loader, args)
     # plot_tsne(model, eval_loader, args)
@@ -1072,18 +1073,4 @@ if __name__ == "__main__":
         with open(args.save_txt_path, 'a') as f:
             f.write("{:.4f}, {:.4f}, {:.4f}\n".format(acc, nmi, ari))
 
-    # print("Testing if properly saved")
-    # # Load the dictionary
-    # model_dict = torch.load(args.model_dir)
-
-    # # Create the model with clusters
-    # model = ResNet(BasicBlock, [2,2,2,2], args.n_unlabeled_classes).to(device)
-
-    # # Load the state dictionary into the model
-    # model.load_state_dict(model_dict['state_dict'], strict=False)
-
-    # # Load the center
-    # model.center = Parameter(model_dict['center'])
-
-    # acc, nmi, ari, _ = test(model, eval_loader, args,False)
-    # print('Final ACC {:.4f}, NMI {:.4f}, ARI {:.4f}'.format(acc, nmi, ari))
+  
