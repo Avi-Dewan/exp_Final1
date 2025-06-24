@@ -10,6 +10,7 @@ from sklearn.metrics import adjusted_rand_score as ari_score
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 from utils.sinkhorn_knopp import SinkhornKnopp
 from utils.util import cluster_acc, Identity, AverageMeter, seed_torch, softBCE, str2bool, PairEnum, BCE, myBCE, softBCE_F, softBCE_N
@@ -212,11 +213,11 @@ def CE_PI_CL_softBCE_train(model,
     """
     simCLR_loss = SimCLR_Loss(batch_size=args.batch_size, temperature=0.5).to(device)
     criterion_bce = softBCE_N()
-    criterion_ce = nn.CrossEntropyLoss()  # Cross-entropy loss for labeled data
-    
+    ce_criterion = nn.CrossEntropyLoss()
+
     optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 
-    accuracies, nmi_scores, ari_scores = [], [], []
+    accuracies, nmi_scores, ari_scores, f1_scores = [], [], [], []
 
     for epoch in range(args.epochs):
         model.train()
@@ -225,62 +226,26 @@ def CE_PI_CL_softBCE_train(model,
         w = args.rampup_coefficient * ramps.sigmoid_rampup(epoch, args.rampup_length)
         w_softBCE = args.rampup_coefficient_softBCE * ramps.sigmoid_rampup(epoch, args.rampup_length_softBCE)
 
-        # Create iterators for both labeled and unlabeled data
-        labeled_iter = iter(labeled_train_loader)
-        unlabeled_iter = iter(unlabeled_train_loader)
+        labeled_loader_iter = iter(labeled_train_loader)
         
-        # Determine the number of batches (use the smaller of the two)
-        num_batches = min(len(labeled_train_loader), len(unlabeled_train_loader))
+        for batch_idx, ((x, x_bar), label, idx) in enumerate(tqdm(unlabeled_train_loader)):
+            x, x_bar = x.to(device), x_bar.to(device)
 
-        for batch_idx in range(num_batches):
-            # Get labeled batch
-            try:
-                (x_labeled, x_labeled_bar), label_labeled, idx_labeled = next(labeled_iter)
-            except StopIteration:
-                labeled_iter = iter(labeled_train_loader)
-                (x_labeled, x_labeled_bar), label_labeled, idx_labeled = next(labeled_iter)
-            
-            # Get unlabeled batch
-            try:
-                (x_unlabeled, x_unlabeled_bar), label_unlabeled, idx_unlabeled = next(unlabeled_iter)
-            except StopIteration:
-                unlabeled_iter = iter(unlabeled_train_loader)
-                (x_unlabeled, x_unlabeled_bar), label_unlabeled, idx_unlabeled = next(unlabeled_iter)
-
-            # Move to device
-            x_labeled, x_labeled_bar = x_labeled.to(device), x_labeled_bar.to(device)
-            label_labeled = label_labeled.to(device)
-            x_unlabeled, x_unlabeled_bar = x_unlabeled.to(device), x_unlabeled_bar.to(device)
-
-            # Forward pass for labeled data
-            extracted_feat_labeled, labeled_pred, z_labeled = model(x_labeled)
-            extracted_feat_labeled_bar, labeled_pred_bar, z_labeled_bar = model(x_labeled_bar)
-            
-            # Cross-entropy loss for labeled data
-            ce_loss = criterion_ce(labeled_pred, label_labeled)
-
-            # Forward pass for unlabeled data
-            extracted_feat, labeled_pred_unlabeled, z_unlabeled = model(x_unlabeled)
-            extracted_feat_bar, labeled_pred_unlabeled_bar, z_unlabeled_bar = model(x_unlabeled_bar)
+            extracted_feat, _ , z_unlabeled = model(x)
+            extracted_feat_bar, _ , z_unlabeled_bar = model(x_bar)
 
             prob = feat2prob(z_unlabeled, model.center)
             prob_bar = feat2prob(z_unlabeled_bar, model.center)
 
-            sharp_loss = F.kl_div(prob.log(), args.p_targets[idx_unlabeled].float().to(device))
+            sharp_loss = F.kl_div(prob.log(), args.p_targets[idx].float().to(device))
             consistency_loss = F.mse_loss(prob, prob_bar)
 
-            # Contrastive loss using internal projector (combine labeled and unlabeled)
-            z_i_labeled = model.projector_CL(extracted_feat_labeled)
-            z_j_labeled = model.projector_CL(extracted_feat_labeled_bar)
-            z_i_unlabeled = model.projector_CL(extracted_feat)
-            z_j_unlabeled = model.projector_CL(extracted_feat_bar)
-            
-            # Combine features for contrastive learning
-            z_i_combined = torch.cat([z_i_labeled, z_i_unlabeled], dim=0)
-            z_j_combined = torch.cat([z_j_labeled, z_j_unlabeled], dim=0)
-            contrastive_loss = simCLR_loss(z_i_combined, z_j_combined)
+            # contrastive loss using internal projector
+            z_i = model.projector_CL(extracted_feat)
+            z_j = model.projector_CL(extracted_feat_bar)
+            contrastive_loss = simCLR_loss(z_i, z_j)
 
-            # Pairwise BCE label via ranking (only for unlabeled data)
+            # pairwise BCE label via ranking
             rank_feat = extracted_feat.detach()
             rank_idx = torch.argsort(rank_feat, dim=1, descending=True)
             rank_idx1, rank_idx2 = PairEnum(rank_idx)
@@ -297,26 +262,35 @@ def CE_PI_CL_softBCE_train(model,
 
             bce_loss = criterion_bce(prob_pair, prob_bar_pair, pairwise_pseudo_label)
 
-            # Total loss combining all components
-            loss = ce_loss + sharp_loss + w * consistency_loss + w * contrastive_loss + w_softBCE * bce_loss
-            loss_record.update(loss.item(), x_labeled.size(0) + x_unlabeled.size(0))
+            # === Add labeled CE loss ===
+            try:
+                x_l, y_l, _ = next(labeled_loader_iter)
+
+            except StopIteration:
+                labeled_loader_iter = iter(labeled_train_loader)
+                x_l, y_l, _ = next(labeled_loader_iter)
+
+            x_l, y_l = x_l.to(device), y_l.to(device)
+            _, labeled_pred_l, _ = model(x_l)
+
+            ce_loss = ce_criterion(labeled_pred_l, y_l)
+
+            
+            loss =ce_loss + sharp_loss + w * consistency_loss + w * contrastive_loss + w_softBCE * bce_loss
+            loss_record.update(loss.item(), x.size(0))
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
         print(f"Epoch {epoch}: Avg Loss = {loss_record.avg:.4f}")
-        
-        # Evaluate on unlabeled data
         acc, nmi, ari, probs = test(model, unlabeled_eval_loader, args)
+        f1 = test_labeled(model, labeled_eval_loader)
+        
         accuracies.append(acc)
         nmi_scores.append(nmi)
         ari_scores.append(ari)
-
-        # Also evaluate on labeled data for monitoring
-        if labeled_eval_loader is not None:
-            acc_labeled = test_labeled(model, labeled_eval_loader, args)
-            print(f"Labeled Test Accuracy: {acc_labeled:.4f}")
+        f1_scores.append(f1)
 
         if epoch % args.update_interval == 0:
             print("Updating p_targets...")
@@ -327,36 +301,16 @@ def CE_PI_CL_softBCE_train(model,
     print(f"Model saved to {args.model_dir}")
 
     plt.figure(figsize=(10, 6))
-    plt.plot(range(args.epochs), accuracies, label="Accuracy")
+    plt.plot(range(args.epochs), accuracies, label="ACC")
     plt.plot(range(args.epochs), nmi_scores, label="NMI")
     plt.plot(range(args.epochs), ari_scores, label="ARI")
+    plt.plot(range(args.epochs), f1_scores, label="F1(labeled data)")
     plt.xlabel("Epochs")
     plt.ylabel("Metric Score")
     plt.title("Training Metrics")
     plt.legend()
     plt.savefig(args.model_folder + '/accuracies.png')
-
-
-def test_labeled(model, test_loader, args):
-    """Test function for labeled data using cross-entropy accuracy"""
-    model.eval()
-    correct = 0
-    total = 0
-    
-    with torch.no_grad():
-        for batch_idx, (x, label, idx) in enumerate(tqdm(test_loader)):
-            x, label = x.to(device), label.to(device)
-            
-            _, labeled_pred, _ = model(x)
-            
-            _, pred = labeled_pred.max(1)
-            total += label.size(0)
-            correct += pred.eq(label).sum().item()
-    
-    accuracy = 100. * correct / total
-    print(f'Labeled Test Accuracy: {accuracy:.4f}%')
-    return accuracy
-
+      
 
 def test(model, test_loader, args):
     model.eval()
@@ -387,6 +341,31 @@ def test(model, test_loader, args):
 
     return acc, nmi, ari, probs 
 
+def test_labeled(model, test_loader, args):
+    model.eval()
+    preds = []
+    targets = []
+    
+    for batch_idx, (x, label, _) in enumerate(tqdm(test_loader)):
+        x, label = x.to(device), label.to(device)
+
+        _, output, _ = model(x)  # model forward pass (gives two output: extracted features and final output)
+        _, pred = output.max(1) 
+        pred = pred
+
+        targets.extend(label.cpu().numpy())
+        preds.extend(pred.cpu().numpy())
+    
+    # Calculate metrics using sklearn
+    accuracy = accuracy_score(targets, preds)
+    precision = precision_score(targets, preds, average='macro')
+    recall = recall_score(targets, preds, average='macro')
+    f1 = f1_score(targets, preds, average='macro')
+
+    # Print metrics in a single line
+    print('Test Accuracy: {:.4f}, Precision: {:.4f}, Recall: {:.4f}, F1 Score: {:.4f}'.format(accuracy, precision, recall, f1))
+
+    return f1
 
 def plot_tsne(model, test_loader, args):
     """Generates a t-SNE plot of the learned features."""
