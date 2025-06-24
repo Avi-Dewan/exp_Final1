@@ -92,8 +92,8 @@ def warmup_train(model, train_loader, eva_loader, args):
         for batch_idx, ((x, _), label, idx) in enumerate(tqdm(train_loader)):
             x = x.to(device)
 
-            _, final_feat = model(x) # model.forward() returns two values: Extracted Features(extracted_feat), Final Features(final_feat)
-            prob = feat2prob(final_feat, model.center) # get the probability distribution by calculating distance from the center
+            _, _, z_unlabeled = model(x) # model.forward() returns two values: Extracted Features(extracted_feat), Final Features(final_feat)
+            prob = feat2prob(z_unlabeled, model.center) # get the probability distribution by calculating distance from the center
             loss = F.kl_div(prob.log(), args.p_targets[idx].float().to(device)) # calculate the KL divergence loss between the probability distribution and the target distribution
             
             loss_record.update(loss.item(), x.size(0))
@@ -118,6 +118,7 @@ def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
     """
     simCLR_loss = SimCLR_Loss(batch_size=args.batch_size, temperature=0.5).to(device)
     criterion_bce = softBCE_N()
+    
     optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 
     accuracies, nmi_scores, ari_scores = [], [], []
@@ -132,11 +133,11 @@ def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
         for batch_idx, ((x, x_bar), label, idx) in enumerate(tqdm(train_loader)):
             x, x_bar = x.to(device), x_bar.to(device)
 
-            extracted_feat, final_feat = model(x)
-            extracted_feat_bar, final_feat_bar = model(x_bar)
+            extracted_feat, labeled_pred, z_unlabeled = model(x)
+            extracted_feat_bar, labeled_pred_bar, z_unlabeled_bar = model(x_bar)
 
-            prob = feat2prob(final_feat, model.encoder.center)
-            prob_bar = feat2prob(final_feat_bar, model.encoder.center)
+            prob = feat2prob(z_unlabeled, model.encoder.center)
+            prob_bar = feat2prob(z_unlabeled_bar, model.encoder.center)
 
             sharp_loss = F.kl_div(prob.log(), args.p_targets[idx].float().to(device))
             consistency_loss = F.mse_loss(prob, prob_bar)

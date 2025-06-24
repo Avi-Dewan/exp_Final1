@@ -18,16 +18,15 @@ class ResNetMultiHead(nn.Module):
         # Learnable cluster centers for Sinkhorn etc.
         self.center = nn.Parameter(torch.randn(proj_dim_unlabeled, proj_dim_unlabeled))
 
-    def forward(self, x, return_all=False):
+    def forward(self, x, return_last =True):
 
         extracted_feat, final_feat = self.encoder(x)  # extracted_feat = fina final_feat = output of encoder.linear
 
         labeled_pred = final_feat  # classifier output (num_classes)
 
-        if return_all:
-            z_cl = self.projector_CL(extracted_feat)
+        if return_last:
             z_unlabeled = self.projector_unlabeled(extracted_feat)
 
-            return extracted_feat, labeled_pred, z_unlabeled, z_cl
+            return extracted_feat, labeled_pred, z_unlabeled
 
-        return extracted_feat, labeled_pred
+        return extracted_feat
