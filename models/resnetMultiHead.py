@@ -2,8 +2,8 @@
 import torch
 import torch.nn as nn
 
-from resnet import ResNet
-from preModel import ProjectionHead
+from .resnet import ResNet
+from .preModel import ProjectionHead
 
 class ResNetMultiHead(nn.Module):
     def __init__(self, block, layers, feat_dim=512, num_classes=5, 
@@ -27,7 +27,7 @@ class ResNetMultiHead(nn.Module):
         if return_all:
             z_cl = self.projector_CL(extracted_feat)
             z_unlabeled = self.projector_unlabeled(extracted_feat)
-            
+
             return extracted_feat, labeled_pred, z_unlabeled, z_cl
 
         return extracted_feat, labeled_pred
