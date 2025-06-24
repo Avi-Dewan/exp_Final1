@@ -494,9 +494,10 @@ if __name__ == "__main__":
     
     model.encoder.load_state_dict(init_feat_extractor.state_dict(), strict=False)
 
+    model.center = Parameter(torch.Tensor(args.n_unlabeled_classes, 20))
     model.center.data = torch.tensor(init_centers).float().to(device)
     
-
+    print('---------------------------------')
     print(model)
     print('---------------------------------')
 
