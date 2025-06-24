@@ -418,8 +418,8 @@ if __name__ == "__main__":
 
     print("Arguments: ", args)
 
-    labeled_train_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='once', shuffle=True, target_list = range(args.num_labeled_classes))
-    labeled_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='test', aug=None, shuffle=False, target_list = range(args.num_labeled_classes))
+    labeled_train_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='once', shuffle=True, target_list = range(args.n_labeled_classes))
+    labeled_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='test', aug=None, shuffle=False, target_list = range(args.n_labeled_classes))
 
     unlabaled_train_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='twice', shuffle=True, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
     unlabeled_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes))
@@ -451,7 +451,7 @@ if __name__ == "__main__":
             param.requires_grad = False
 
     warmup_train(model, unlabaled_train_loader, unlabeled_eval_loader, args)
-    
+
 
     if args.DTC == 'sinkhorn_softBCE':
         PI_CL_softBCE_train(model, unlabaled_train_loader, unlabeled_eval_loader, args)
