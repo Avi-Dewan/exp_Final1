@@ -454,7 +454,7 @@ if __name__ == "__main__":
     warmup_train(model, unlabaled_train_loader, unlabeled_eval_loader, args)
 
 
-    if args.DTC == 'sinkhorn_softBCE':
+    if args.DTC == 'PI_CL_sotBCE':
         PI_CL_softBCE_train(model, unlabaled_train_loader, unlabeled_eval_loader, args)
   
 
