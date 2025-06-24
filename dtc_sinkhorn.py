@@ -445,25 +445,7 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
             contrastive_loss = simCLR_loss(z_i, z_j)
 
 
-       # ===== Debug version: soft BCE loss with full trace =====
 
-            def check_nan(name, tensor):
-                if torch.isnan(tensor).any():
-                    print(f"❌ NaN found in {name}")
-                    print(f"→ {name}.min: {tensor.min().item()}, max: {tensor.max().item()}")
-                    return True
-                return False
-            
-            # === Sanity check on final_feat and model.center ===
-            if torch.isnan(final_feat).any():
-                print("❌ NaN in final_feat")
-            if torch.isnan(model.center).any():
-                print("❌ NaN in model.center")
-            if torch.isinf(final_feat).any():
-                print("❌ Inf in final_feat")
-            if torch.isinf(model.center).any():
-                print("❌ Inf in model.center")
-            # print("final_feat stats:", final_feat.min().item(), final_feat.max().item())
             # print("center stats:", model.center.min().item(), model.center.max().item())
 
 
@@ -471,25 +453,15 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
             temp = 0.1
             logits = -torch.sum((final_feat.unsqueeze(1) - model.center) ** 2, dim=2) 
             logits_bar = -torch.sum((final_feat_bar.unsqueeze(1) - model.center) ** 2, dim=2) 
-
-            if check_nan("logits", logits) or check_nan("logits_bar", logits_bar):
-                raise ValueError("NaN in logits computation")
             
-            # logits = (logits - logits.mean(dim=1, keepdim=True)) / logits.std(dim=1, keepdim=True)
-            # logits = (logits - logits.mean(dim=1, keepdim=True)) / logits.std(dim=1, keepdim=True)
 
-            
             # Step 2: Sinkhorn input stability
             logits_all = torch.cat([logits, logits_bar], dim=0)
             logits_all = logits_all - logits_all.max()  # stability
-            if check_nan("logits_all (after max subtraction)", logits_all):
-                raise ValueError("NaN before Sinkhorn")
-
+         
             # Step 3: Sinkhorn assignments
             pseudo_all = sinkhorn(logits_all)
             pseudo, pseudo_bar = pseudo_all[:logits.size(0)], pseudo_all[logits.size(0):]
-            if check_nan("pseudo", pseudo) or check_nan("pseudo_bar", pseudo_bar):
-                raise ValueError("NaN after Sinkhorn")
 
             # Step 4: Pairwise soft labels
             pseudo_i, pseudo_j = PairEnum(pseudo)
@@ -519,9 +491,6 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
             pairwise_pseudo_label = (1 - alpha) * r_label + alpha * s_label
             pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
 
-            if check_nan("pairwise_pseudo_label (before clamp)", pairwise_pseudo_label):
-                raise ValueError("NaN in pairwise pseudo label calc")
-
             pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
 
           
@@ -541,32 +510,11 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
             # loss = sharp_loss + w * consistency_loss  + bce_loss # calculate the total loss
             loss_record.update(loss.item(), x.size(0))
 
-            # ==== NaN Debugging Block ====
-
-            if torch.isnan(bce_loss):
-                print("\n❌ NaN detected in BCE loss!")
-
-                # Check logits_pair and logits_bar_pair
-                if torch.isnan(logits_pair).any():
-                    print("🔴 NaN in logits_pair")
-                if torch.isnan(logits_bar_pair).any():
-                    print("🔴 NaN in logits_bar_pair")
-
-                # Check pseudo-labels
-                if torch.isnan(pairwise_pseudo_label).any():
-                    print("🔴 NaN in pairwise_pseudo_label")
-
-                print("Logits pair stats:", logits_pair.min().item(), logits_pair.max().item())
-                print("Logits bar pair stats:", logits_bar_pair.min().item(), logits_bar_pair.max().item())
-                print("Pseudo-label stats:", pairwise_pseudo_label.min().item(), pairwise_pseudo_label.max().item())
-
-                # Force crash
-                raise ValueError("NaN found in BCE path. Check logs above.")
-
-
+         
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            
         print('Train Epoch: {} Avg Loss: {:.4f}'.format(epoch, loss_record.avg))
 
         acc, nmi, ari, probs = test(model, eva_loader, args)
