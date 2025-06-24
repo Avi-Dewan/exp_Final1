@@ -108,7 +108,7 @@ def warmup_train(model, train_loader, eva_loader, args):
     args.p_targets = target_distribution(probs)  # update the target distribution
 
 
-def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
+def PI_CL_softBCE_train(model, unlabeled_train_loader, unlabeled_eval_loader, args):
     """
     Training with:
     - KL on sharpened targets
@@ -130,7 +130,7 @@ def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
         w = args.rampup_coefficient * ramps.sigmoid_rampup(epoch, args.rampup_length)
         w_softBCE = args.rampup_coefficient_softBCE * ramps.sigmoid_rampup(epoch, args.rampup_length_softBCE)
 
-        for batch_idx, ((x, x_bar), label, idx) in enumerate(tqdm(train_loader)):
+        for batch_idx, ((x, x_bar), label, idx) in enumerate(tqdm(unlabeled_train_loader)):
             x, x_bar = x.to(device), x_bar.to(device)
 
             extracted_feat, labeled_pred, z_unlabeled = model(x)
@@ -172,7 +172,7 @@ def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
             optimizer.step()
 
         print(f"Epoch {epoch}: Avg Loss = {loss_record.avg:.4f}")
-        acc, nmi, ari, probs = test(model, eva_loader, args)
+        acc, nmi, ari, probs = test(model, unlabeled_eval_loader, args)
         accuracies.append(acc)
         nmi_scores.append(nmi)
         ari_scores.append(ari)
@@ -196,67 +196,100 @@ def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
     plt.savefig(args.model_folder + '/accuracies.png')
 
 
-def gcd_softBCE_train(model, train_loader, eva_loader, args):
- 
-    simCLR_loss = SimCLR_Loss(batch_size = args.batch_size, temperature = 0.5).to(device)
+def CE_PI_CL_softBCE_train(model, 
+                           labeled_train_loader,
+                           labeled_eval_loader,
+                           unlabeled_train_loader,
+                           unlabeled_eval_loader,
+                           args):
+    """
+    Training with:
+    - Cross-entropy loss for labeled data
+    - KL on sharpened targets
+    - MSE consistency loss
+    - SimCLR contrastive loss
+    - Pairwise BCE loss (ranking-based)
+    """
+    simCLR_loss = SimCLR_Loss(batch_size=args.batch_size, temperature=0.5).to(device)
     criterion_bce = softBCE_N()
+    criterion_ce = nn.CrossEntropyLoss()  # Cross-entropy loss for labeled data
+    
+    optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 
-    projector_CL = ProjectionHead(512 * BasicBlock.expansion, 2048, 128).to(device)
-    projector_unlabeled = ProjectionHead(512 * BasicBlock.expansion, 2048, 20).to(device)
-
-    optimizer = SGD(list(model.parameters()) + 
-                    list(projector_CL.parameters()) + 
-                    list(projector_unlabeled.parameters()), 
-                    lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
-
-    w = 0
-    w_softBCE = 0
-
-    # Lists to store metrics for each epoch
-    accuracies = []
-    nmi_scores = []
-    ari_scores = []
+    accuracies, nmi_scores, ari_scores = [], [], []
 
     for epoch in range(args.epochs):
+        model.train()
         loss_record = AverageMeter()
 
-        model.train()
+        w = args.rampup_coefficient * ramps.sigmoid_rampup(epoch, args.rampup_length)
+        w_softBCE = args.rampup_coefficient_softBCE * ramps.sigmoid_rampup(epoch, args.rampup_length_softBCE)
 
-        w = args.rampup_coefficient * ramps.sigmoid_rampup(epoch, args.rampup_length)  # co_eff = 10, length = 5
-        w_softBCE = args.rampup_coefficient_softBCE * ramps.sigmoid_rampup(epoch, args.rampup_length_softBCE)  # co_eff = 20, length = 10
-
-        for batch_idx, ((x, x_bar), label, idx) in enumerate(tqdm(train_loader)):
-            x, x_bar = x.to(device), x_bar.to(device)
-            extracted_feat, final_feat = model(x) # model.forward() returns two values: Extracted Features(extracted_feat), Final Features(final_feat)
-            extracted_feat_bar, final_feat_bar = model(x_bar)  # get the feature of the augmented image
-
-            prob = feat2prob(final_feat, model.center) # get the probability distribution by calculating distance from the center
-            prob_bar = feat2prob(final_feat_bar, model.center) #  get the probability distribution of the augmented image
-           
-            sharp_loss = F.kl_div(prob.log(), args.p_targets[idx].float().to(device)) # calculate the KL divergence loss between the probability distribution and the target distribution
-            consistency_loss = F.mse_loss(prob, prob_bar)  # calculate the mean squared error loss between the probability distribution and the probability distribution of the augmented image
-
-            # simCLR loss
-            z_i, z_j = projector_CL(extracted_feat), projector_CL(extracted_feat_bar) 
-            contrastive_loss = simCLR_loss(z_i, z_j)
-
-            #BCE
-            rank_feat = extracted_feat.detach()
-            rank_idx = torch.argsort(rank_feat, dim=1, descending=True) # [68, 512] --> index of features. sorted by value
-            rank_idx1, rank_idx2= PairEnum(rank_idx) # [68*68, 512], [68*68, 512]
-            rank_idx1, rank_idx2=rank_idx1[:, :args.topk], rank_idx2[:, :args.topk] # [68*68, 5], [68*68, 5]
-            rank_idx1, _ = torch.sort(rank_idx1, dim=1) # [68*68, 5]
-            rank_idx2, _ = torch.sort(rank_idx2, dim=1) # [68*68, 5]
-
-            # Expand rank_idx1 and rank_idx2 for broadcasting
-            rank_idx1 = rank_idx1.unsqueeze(2) # Shape: [68*68, 5, 1]
-            rank_idx2 = rank_idx2.unsqueeze(1) # Shape: [68*68, 1, 5]
+        # Create iterators for both labeled and unlabeled data
+        labeled_iter = iter(labeled_train_loader)
+        unlabeled_iter = iter(unlabeled_train_loader)
         
-            # Compare all elements and count matches
-            matches = (rank_idx1 == rank_idx2).sum(dim=2)  # Shape: [68*68, 5]
-            common_elements = matches.sum(dim=1)          # Shape: [68*68]
+        # Determine the number of batches (use the smaller of the two)
+        num_batches = min(len(labeled_train_loader), len(unlabeled_train_loader))
 
-            # Calculate soft pseudo-label
+        for batch_idx in range(num_batches):
+            # Get labeled batch
+            try:
+                (x_labeled, x_labeled_bar), label_labeled, idx_labeled = next(labeled_iter)
+            except StopIteration:
+                labeled_iter = iter(labeled_train_loader)
+                (x_labeled, x_labeled_bar), label_labeled, idx_labeled = next(labeled_iter)
+            
+            # Get unlabeled batch
+            try:
+                (x_unlabeled, x_unlabeled_bar), label_unlabeled, idx_unlabeled = next(unlabeled_iter)
+            except StopIteration:
+                unlabeled_iter = iter(unlabeled_train_loader)
+                (x_unlabeled, x_unlabeled_bar), label_unlabeled, idx_unlabeled = next(unlabeled_iter)
+
+            # Move to device
+            x_labeled, x_labeled_bar = x_labeled.to(device), x_labeled_bar.to(device)
+            label_labeled = label_labeled.to(device)
+            x_unlabeled, x_unlabeled_bar = x_unlabeled.to(device), x_unlabeled_bar.to(device)
+
+            # Forward pass for labeled data
+            extracted_feat_labeled, labeled_pred, z_labeled = model(x_labeled)
+            extracted_feat_labeled_bar, labeled_pred_bar, z_labeled_bar = model(x_labeled_bar)
+            
+            # Cross-entropy loss for labeled data
+            ce_loss = criterion_ce(labeled_pred, label_labeled)
+
+            # Forward pass for unlabeled data
+            extracted_feat, labeled_pred_unlabeled, z_unlabeled = model(x_unlabeled)
+            extracted_feat_bar, labeled_pred_unlabeled_bar, z_unlabeled_bar = model(x_unlabeled_bar)
+
+            prob = feat2prob(z_unlabeled, model.center)
+            prob_bar = feat2prob(z_unlabeled_bar, model.center)
+
+            sharp_loss = F.kl_div(prob.log(), args.p_targets[idx_unlabeled].float().to(device))
+            consistency_loss = F.mse_loss(prob, prob_bar)
+
+            # Contrastive loss using internal projector (combine labeled and unlabeled)
+            z_i_labeled = model.projector_CL(extracted_feat_labeled)
+            z_j_labeled = model.projector_CL(extracted_feat_labeled_bar)
+            z_i_unlabeled = model.projector_CL(extracted_feat)
+            z_j_unlabeled = model.projector_CL(extracted_feat_bar)
+            
+            # Combine features for contrastive learning
+            z_i_combined = torch.cat([z_i_labeled, z_i_unlabeled], dim=0)
+            z_j_combined = torch.cat([z_j_labeled, z_j_unlabeled], dim=0)
+            contrastive_loss = simCLR_loss(z_i_combined, z_j_combined)
+
+            # Pairwise BCE label via ranking (only for unlabeled data)
+            rank_feat = extracted_feat.detach()
+            rank_idx = torch.argsort(rank_feat, dim=1, descending=True)
+            rank_idx1, rank_idx2 = PairEnum(rank_idx)
+            rank_idx1, rank_idx2 = rank_idx1[:, :args.topk], rank_idx2[:, :args.topk]
+            rank_idx1, _ = torch.sort(rank_idx1, dim=1)
+            rank_idx2, _ = torch.sort(rank_idx2, dim=1)
+
+            matches = (rank_idx1.unsqueeze(2) == rank_idx2.unsqueeze(1)).sum(dim=2)
+            common_elements = matches.sum(dim=1)
             pairwise_pseudo_label = common_elements.float() / args.topk
 
             prob_pair, _ = PairEnum(prob)
@@ -264,45 +297,65 @@ def gcd_softBCE_train(model, train_loader, eva_loader, args):
 
             bce_loss = criterion_bce(prob_pair, prob_bar_pair, pairwise_pseudo_label)
 
-            baseline_loss = sharp_loss + w * consistency_loss
-
-            loss = baseline_loss + w*contrastive_loss +  w_softBCE*bce_loss # calculate the total loss
-
-            loss_record.update(loss.item(), x.size(0))
+            # Total loss combining all components
+            loss = ce_loss + sharp_loss + w * consistency_loss + w * contrastive_loss + w_softBCE * bce_loss
+            loss_record.update(loss.item(), x_labeled.size(0) + x_unlabeled.size(0))
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-        print('Train Epoch: {} Avg Loss: {:.4f}'.format(epoch, loss_record.avg))
-
-        acc, nmi, ari, probs = test(model, eva_loader, args)
+        print(f"Epoch {epoch}: Avg Loss = {loss_record.avg:.4f}")
+        
+        # Evaluate on unlabeled data
+        acc, nmi, ari, probs = test(model, unlabeled_eval_loader, args)
         accuracies.append(acc)
         nmi_scores.append(nmi)
         ari_scores.append(ari)
 
+        # Also evaluate on labeled data for monitoring
+        if labeled_eval_loader is not None:
+            acc_labeled = test_labeled(model, labeled_eval_loader, args)
+            print(f"Labeled Test Accuracy: {acc_labeled:.4f}")
+
         if epoch % args.update_interval == 0:
-            print('updating target ...')
-            args.p_targets = target_distribution(probs)  # update the target distribution
+            print("Updating p_targets...")
+            args.p_targets = target_distribution(probs)
 
-    # Create a dictionary that includes the model's state dictionary and the center
-    model_dict = {'state_dict': model.state_dict(), 'center': model.center}
-
-    # Save the dictionary
-    torch.save(model_dict, args.model_dir)
-    print("model saved to {}.".format(args.model_dir))
+    # Save model
+    torch.save({'state_dict': model.state_dict(), 'center': model.center}, args.model_dir)
+    print(f"Model saved to {args.model_dir}")
 
     plt.figure(figsize=(10, 6))
-    epochs_range = range(args.epochs)
-    plt.plot(epochs_range, accuracies, label="Accuracy")
-    plt.plot(epochs_range, nmi_scores, label="NMI")
-    plt.plot(epochs_range, ari_scores, label="ARI")
+    plt.plot(range(args.epochs), accuracies, label="Accuracy")
+    plt.plot(range(args.epochs), nmi_scores, label="NMI")
+    plt.plot(range(args.epochs), ari_scores, label="ARI")
     plt.xlabel("Epochs")
     plt.ylabel("Metric Score")
-    plt.title("Training Metrics over Epochs")
+    plt.title("Training Metrics")
     plt.legend()
-    plt.savefig(args.model_folder+'/accuracies.png')   
+    plt.savefig(args.model_folder + '/accuracies.png')
 
+
+def test_labeled(model, test_loader, args):
+    """Test function for labeled data using cross-entropy accuracy"""
+    model.eval()
+    correct = 0
+    total = 0
+    
+    with torch.no_grad():
+        for batch_idx, (x, label, idx) in enumerate(tqdm(test_loader)):
+            x, label = x.to(device), label.to(device)
+            
+            _, labeled_pred, _ = model(x)
+            
+            _, pred = labeled_pred.max(1)
+            total += label.size(0)
+            correct += pred.eq(label).sum().item()
+    
+    accuracy = 100. * correct / total
+    print(f'Labeled Test Accuracy: {accuracy:.4f}%')
+    return accuracy
 
 
 def test(model, test_loader, args):
