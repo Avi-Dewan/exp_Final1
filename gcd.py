@@ -513,7 +513,8 @@ if __name__ == "__main__":
     elif args.DTC == 'CE_PI_CL_softBCE':
         CE_PI_CL_softBCE_train(model, 
                                labeled_train_loader, labeled_eval_loader, 
-                               unlabeled_train_loader, unlabeled_eval_loader)
+                               unlabeled_train_loader, unlabeled_eval_loader,
+                               args)
   
 
     acc, nmi, ari, _ = test(model, unlabeled_eval_loader, args)
