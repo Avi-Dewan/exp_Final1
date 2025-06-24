@@ -315,9 +315,9 @@ def test(model, test_loader, args):
     for batch_idx, (x, label, idx) in enumerate(tqdm(test_loader)):
         x, label = x.to(device), label.to(device)
 
-        _, final_feat = model(x) # model.forward() returns two values: Extracted Features(extracted_feat), Final Features(final_feat)
+        _, _, z_unlabeled = model(x) # model.forward() returns two values: Extracted Features(extracted_feat), Final Features(final_feat)
 
-        prob = feat2prob(final_feat, model.center) # get the probability distribution by calculating distance from the center
+        prob = feat2prob(z_unlabeled, model.center) # get the probability distribution by calculating distance from the center
 
         _, pred = prob.max(1)
 
