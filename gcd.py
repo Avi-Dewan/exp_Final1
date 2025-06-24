@@ -136,8 +136,8 @@ def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
             extracted_feat, labeled_pred, z_unlabeled = model(x)
             extracted_feat_bar, labeled_pred_bar, z_unlabeled_bar = model(x_bar)
 
-            prob = feat2prob(z_unlabeled, model.encoder.center)
-            prob_bar = feat2prob(z_unlabeled_bar, model.encoder.center)
+            prob = feat2prob(z_unlabeled, model.center)
+            prob_bar = feat2prob(z_unlabeled_bar, model.center)
 
             sharp_loss = F.kl_div(prob.log(), args.p_targets[idx].float().to(device))
             consistency_loss = F.mse_loss(prob, prob_bar)
@@ -182,7 +182,7 @@ def PI_CL_softBCE_train(model, train_loader, eva_loader, args):
             args.p_targets = target_distribution(probs)
 
     # Save model
-    torch.save({'state_dict': model.state_dict(), 'center': model.encoder.center}, args.model_dir)
+    torch.save({'state_dict': model.state_dict(), 'center': model.center}, args.model_dir)
     print(f"Model saved to {args.model_dir}")
 
     plt.figure(figsize=(10, 6))
