@@ -363,7 +363,7 @@ def test_labeled(model, test_loader):
     f1 = f1_score(targets, preds, average='macro')
 
     # Print metrics in a single line
-    print('Test Accuracy: {:.4f}, Precision: {:.4f}, Recall: {:.4f}, F1 Score: {:.4f}'.format(accuracy, precision, recall, f1))
+    print('Labeld Test Accuracy: {:.4f}, Precision: {:.4f}, Recall: {:.4f}, F1 Score: {:.4f}'.format(accuracy, precision, recall, f1))
 
     return f1
 
