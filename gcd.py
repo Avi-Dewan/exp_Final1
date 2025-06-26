@@ -94,7 +94,7 @@ def warmup_train(model, train_loader, eva_loader, args):
             x = x.to(device)
 
             _, _, z_unlabeled = model(x) # model.forward() returns two values: Extracted Features(extracted_feat), Final Features(final_feat)
-            prob = feat2prob(z_unlabeled, model.center) # get the probability distribution by calculating distance from the center
+            prob = feat2prob(z_unlabeled, model.encoder.center) # get the probability distribution by calculating distance from the center
             loss = F.kl_div(prob.log(), args.p_targets[idx].float().to(device)) # calculate the KL divergence loss between the probability distribution and the target distribution
             
             loss_record.update(loss.item(), x.size(0))
@@ -137,8 +137,8 @@ def PI_CL_softBCE_train(model, unlabeled_train_loader, unlabeled_eval_loader, ar
             extracted_feat, labeled_pred, z_unlabeled = model(x)
             extracted_feat_bar, labeled_pred_bar, z_unlabeled_bar = model(x_bar)
 
-            prob = feat2prob(z_unlabeled, model.center)
-            prob_bar = feat2prob(z_unlabeled_bar, model.center)
+            prob = feat2prob(z_unlabeled, model.encoder.center)
+            prob_bar = feat2prob(z_unlabeled_bar, model.encoder.center)
 
             sharp_loss = F.kl_div(prob.log(), args.p_targets[idx].float().to(device))
             consistency_loss = F.mse_loss(prob, prob_bar)
@@ -183,7 +183,7 @@ def PI_CL_softBCE_train(model, unlabeled_train_loader, unlabeled_eval_loader, ar
             args.p_targets = target_distribution(probs)
 
     # Save model
-    torch.save({'state_dict': model.state_dict(), 'center': model.center}, args.model_dir)
+    torch.save({'state_dict': model.state_dict(), 'center': model.encoder.center}, args.model_dir)
     print(f"Model saved to {args.model_dir}")
 
     plt.figure(figsize=(10, 6))
@@ -234,8 +234,8 @@ def CE_PI_CL_softBCE_train(model,
             extracted_feat, _ , z_unlabeled = model(x)
             extracted_feat_bar, _ , z_unlabeled_bar = model(x_bar)
 
-            prob = feat2prob(z_unlabeled, model.center)
-            prob_bar = feat2prob(z_unlabeled_bar, model.center)
+            prob = feat2prob(z_unlabeled, model.encoder.center)
+            prob_bar = feat2prob(z_unlabeled_bar, model.encoder.center)
 
             sharp_loss = F.kl_div(prob.log(), args.p_targets[idx].float().to(device))
             consistency_loss = F.mse_loss(prob, prob_bar)
@@ -297,7 +297,7 @@ def CE_PI_CL_softBCE_train(model,
             args.p_targets = target_distribution(probs)
 
     # Save model
-    torch.save({'state_dict': model.state_dict(), 'center': model.center}, args.model_dir)
+    torch.save({'state_dict': model.state_dict(), 'center': model.encoder.center}, args.model_dir)
     print(f"Model saved to {args.model_dir}")
 
     plt.figure(figsize=(10, 6))
@@ -324,7 +324,7 @@ def test(model, test_loader, args):
 
         _, _, z_unlabeled = model(x) # model.forward() returns two values: Extracted Features(extracted_feat), Final Features(final_feat)
 
-        prob = feat2prob(z_unlabeled, model.center) # get the probability distribution by calculating distance from the center
+        prob = feat2prob(z_unlabeled, model.encoder.center) # get the probability distribution by calculating distance from the center
 
         _, pred = prob.max(1)
 
@@ -473,8 +473,8 @@ if __name__ == "__main__":
     
     model.encoder.load_state_dict(init_feat_extractor.state_dict(), strict=False)
 
-    model.center = Parameter(torch.Tensor(args.n_unlabeled_classes, 20))
-    model.center.data = torch.tensor(init_centers).float().to(device)
+    model.encoder.center = Parameter(torch.Tensor(args.n_unlabeled_classes, 20))
+    model.encoder.center.data = torch.tensor(init_centers).float().to(device)
     
     print('---------------------------------')
     print(model)
