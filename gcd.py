@@ -690,7 +690,7 @@ def METHOD2_PI_CL_softBCE_repulsion_train(model,
     plt.ylabel("Metric Score")
     plt.title("METHOD 2: Repulsion Training Metrics")
     plt.legend()
-    plt.savefig(args.model_folder + '/method2_accuracies.png')
+    plt.savefig(args.model_folder + '/accuracies.png')
 
 if __name__ == "__main__":
     import argparse
