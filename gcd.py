@@ -16,6 +16,7 @@ from utils.sinkhorn_knopp import SinkhornKnopp
 from utils.util import cluster_acc, Identity, AverageMeter, seed_torch, softBCE, str2bool, PairEnum, BCE, myBCE, softBCE_F, softBCE_N
 from utils import ramps 
 from utils.simCLR_loss import SimCLR_Loss
+from utils.methosUtil import separation_loss, SeparatedClusterHead
 
 from models.resnet import ResNet, BasicBlock 
 from models.preModel import ProjectionHead
@@ -76,6 +77,41 @@ def init_prob_kmeans(model, eval_loader, args):
     probs = feat2prob(torch.from_numpy(extracted_features), torch.from_numpy(kmeans.cluster_centers_))
     return acc, nmi, ari, kmeans.cluster_centers_, probs 
 
+def init_labeled_clusters(model, labeled_loader, args):
+    """
+    Initialize cluster centers using labeled data.
+    """
+    torch.manual_seed(1)
+    model = model.to(device)
+    
+    model.eval()
+
+    targets = np.zeros(len(labeled_loader.dataset))  # Store labels
+    extracted_features = np.zeros((len(labeled_loader.dataset), 512))  # Store features
+
+    # Extract features for the labeled data
+    for _, (x, label, idx) in enumerate(labeled_loader):
+        x = x.to(device)
+        extracted_feat, _ = model(x)  # Extract features (using the model)
+        idx = idx.data.cpu().numpy()  # Get indices
+        extracted_features[idx, :] = extracted_feat.data.cpu().numpy()  # Store the features
+        targets[idx] = label.data.cpu().numpy()  # Store the labels
+
+     # pca = PCA(n_components=args.n_unlabeled_classes)
+    pca = PCA(n_components=20) # PCA for dimensionality reduction PCA: 512 -> 20
+
+    extracted_features = pca.fit_transform(extracted_features) # fit the PCA model and transform the features
+
+    # Now, calculate the center for each labeled class
+    labeled_centers = np.zeros((args.n_labeled_classes, extracted_features.shape[1]))
+
+    for i in range(args.n_labeled_classes):
+        labeled_centers[i] = np.mean(extracted_features[targets == i], axis=0)
+
+    # Convert to tensor and move to GPU if needed
+    labeled_centers = torch.tensor(labeled_centers).to(device)
+
+    return labeled_centers
 
 def warmup_train(model, train_loader, eva_loader, args):
     '''
@@ -310,7 +346,129 @@ def CE_PI_CL_softBCE_train(model,
     plt.title("Training Metrics")
     plt.legend()
     plt.savefig(args.model_folder + '/accuracies.png')
-      
+
+def PI_CL_softBCE_unlabeled_only_train(model, 
+                                               unlabeled_train_loader,
+                                               unlabeled_eval_loader,
+                                               args):
+    """
+    METHOD 1 variant: Unlabeled-only version following PI_CL_softBCE_train flow
+    This assumes you have some way to get labeled centers (e.g., from pre-training)
+    """
+    # For unlabeled-only, we still create separated head but only use unlabeled part
+    separated_cluster_head = SeparatedClusterHead(
+        feat_dim=args.proj_dim_unlabeled,  # 20
+        n_labeled_classes=args.n_labeled_classes,
+        n_unlabeled_classes=args.n_unlabeled_classes
+    ).to(device)
+    
+    # Initialize unlabeled centers with the original centers from init_prob_kmeans
+    separated_cluster_head.unlabeled_centers.data = model.encoder.center.data.clone()
+    
+    # Initialize labeled centers with some reference (e.g., from pre-trained model or fixed values)
+    # This could be loaded from the pre-trained model or set to fixed values
+    # For now, using Xavier initialization as in your original code
+
+    separated_cluster_head.labeled_centers.data = model.encoder.labeledCenter.data.clone()
+    
+    simCLR_loss = SimCLR_Loss(batch_size=args.batch_size, temperature=0.5).to(device)
+    criterion_bce = softBCE_N()
+
+    # Include separated cluster head parameters in optimizer
+    all_params = list(model.parameters()) + list(separated_cluster_head.parameters())
+    optimizer = SGD(all_params, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+
+    accuracies, nmi_scores, ari_scores = [], [], []
+
+    for epoch in range(args.epochs):
+        model.train()
+        separated_cluster_head.train()
+        loss_record = AverageMeter()
+
+        w = args.rampup_coefficient * ramps.sigmoid_rampup(epoch, args.rampup_length)
+        w_softBCE = args.rampup_coefficient_softBCE * ramps.sigmoid_rampup(epoch, args.rampup_length_softBCE)
+
+        for batch_idx, ((x, x_bar), label, idx) in enumerate(tqdm(unlabeled_train_loader)):
+            x, x_bar = x.to(device), x_bar.to(device)
+
+            extracted_feat, labeled_pred, z_unlabeled = model(x)
+            extracted_feat_bar, labeled_pred_bar, z_unlabeled_bar = model(x_bar)
+
+            # Use separated cluster head for unlabeled data
+            prob = separated_cluster_head(z_unlabeled, is_labeled=False)
+            prob_bar = separated_cluster_head(z_unlabeled_bar, is_labeled=False)
+
+            sharp_loss = F.kl_div(prob.log(), args.p_targets[idx].float().to(device))
+            consistency_loss = F.mse_loss(prob, prob_bar)
+
+            # contrastive loss using internal projector
+            z_i = model.projector_CL(extracted_feat)
+            z_j = model.projector_CL(extracted_feat_bar)
+            contrastive_loss = simCLR_loss(z_i, z_j)
+
+            # pairwise BCE label via ranking
+            rank_feat = extracted_feat.detach()
+            rank_idx = torch.argsort(rank_feat, dim=1, descending=True)
+            rank_idx1, rank_idx2 = PairEnum(rank_idx)
+            rank_idx1, rank_idx2 = rank_idx1[:, :args.topk], rank_idx2[:, :args.topk]
+            rank_idx1, _ = torch.sort(rank_idx1, dim=1)
+            rank_idx2, _ = torch.sort(rank_idx2, dim=1)
+
+            matches = (rank_idx1.unsqueeze(2) == rank_idx2.unsqueeze(1)).sum(dim=2)
+            common_elements = matches.sum(dim=1)
+            pairwise_pseudo_label = common_elements.float() / args.topk
+
+            prob_pair, _ = PairEnum(prob)
+            _, prob_bar_pair = PairEnum(prob_bar)
+
+            bce_loss = criterion_bce(prob_pair, prob_bar_pair, pairwise_pseudo_label)
+            
+            # NEW: Separation loss between labeled and unlabeled centers
+            sep_loss = separation_loss(
+                separated_cluster_head.labeled_centers,
+                separated_cluster_head.unlabeled_centers,
+                margin=2.0
+            )
+
+            # Total loss (following your original PI_CL_softBCE flow + separation)
+            loss = sharp_loss + w * consistency_loss + w * contrastive_loss + w_softBCE * bce_loss + 0.5 * sep_loss
+            loss_record.update(loss.item(), x.size(0))
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+        print(f"Epoch {epoch}: Avg Loss = {loss_record.avg:.4f}")
+        
+        # Update model.encoder.center for compatibility with existing test function
+        model.encoder.center.data = separated_cluster_head.unlabeled_centers.data.clone()
+        
+        acc, nmi, ari, probs = test(model, unlabeled_eval_loader, args)
+        accuracies.append(acc)
+        nmi_scores.append(nmi)
+        ari_scores.append(ari)
+
+        if epoch % args.update_interval == 0:
+            print("Updating p_targets...")
+            args.p_targets = target_distribution(probs)
+
+    # Save model
+    torch.save({
+        'state_dict': model.state_dict(), 
+        'center': model.encoder.center,
+        'separated_cluster_head': separated_cluster_head.state_dict()
+    }, args.model_dir)
+    print(f"Model saved to {args.model_dir}")
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(args.epochs), accuracies, label="Accuracy")
+    plt.plot(range(args.epochs), nmi_scores, label="NMI")
+    plt.plot(range(args.epochs), ari_scores, label="ARI")
+    plt.xlabel("Epochs")
+    plt.ylabel("Metric Score")
+    plt.title("METHOD 1: Training Metrics (Unlabeled Only)")
+    plt.legend()
+    plt.savefig(args.model_folder + '/method1_unlabeled_accuracies.png')     
 
 def test(model, test_loader, args):
     model.eval()
@@ -475,6 +633,11 @@ if __name__ == "__main__":
 
     model.encoder.center = Parameter(torch.Tensor(args.n_unlabeled_classes, 20))
     model.encoder.center.data = torch.tensor(init_centers).float().to(device)
+
+    init_labeled_centers = init_labeled_clusters(model, labeled_train_loader, args)
+
+    model.encoder.labeledCenter = Parameter(torch.Tensor(args.n_labeled_classes, 20))
+    model.encoder.labeledCenter.data = torch.tensor(init_labeled_centers).float().to(device)
     
     print('---------------------------------')
     print(model)
@@ -495,7 +658,8 @@ if __name__ == "__main__":
                                labeled_train_loader, labeled_eval_loader, 
                                unlabeled_train_loader, unlabeled_eval_loader,
                                args)
-  
+    elif args.DTC == 'method_1':
+        PI_CL_softBCE_unlabeled_only_train(model, unlabeled_train_loader, unlabeled_eval_loader, args)
 
     acc, nmi, ari, _ = test(model, unlabeled_eval_loader, args)
 
