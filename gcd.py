@@ -622,6 +622,8 @@ if __name__ == "__main__":
     init_acc, init_nmi, init_ari, init_centers, init_probs = init_prob_kmeans(init_feat_extractor, unlabeled_eval_loader, args)
     args.p_targets = target_distribution(init_probs) 
 
+    init_labeled_centers = init_labeled_clusters(init_feat_extractor, labeled_train_loader, args)
+
     model = ResNetMultiHead(BasicBlock, [2, 2, 2, 2], 
                         feat_dim=512, 
                         n_labeled_classes=5, 
@@ -634,7 +636,6 @@ if __name__ == "__main__":
     model.encoder.center = Parameter(torch.Tensor(args.n_unlabeled_classes, 20))
     model.encoder.center.data = torch.tensor(init_centers).float().to(device)
 
-    init_labeled_centers = init_labeled_clusters(model, labeled_train_loader, args)
 
     model.encoder.labeledCenter = Parameter(torch.Tensor(args.n_labeled_classes, 20))
     model.encoder.labeledCenter.data = torch.tensor(init_labeled_centers).float().to(device)
@@ -658,7 +659,7 @@ if __name__ == "__main__":
                                labeled_train_loader, labeled_eval_loader, 
                                unlabeled_train_loader, unlabeled_eval_loader,
                                args)
-    elif args.DTC == 'method_1':
+    elif args.DTC == 'method1':
         PI_CL_softBCE_unlabeled_only_train(model, unlabeled_train_loader, unlabeled_eval_loader, args)
 
     acc, nmi, ari, _ = test(model, unlabeled_eval_loader, args)
