@@ -638,10 +638,10 @@ def METHOD2_PI_CL_softBCE_repulsion_train(model,
 
             # === Add labeled CE loss ===
             try:
-                (x_l, _), y_l, _ = next(labeled_loader_iter)
+                x_l, y_l, _ = next(labeled_loader_iter)
             except StopIteration:
                 labeled_loader_iter = iter(labeled_train_loader)
-                (x_l, _), y_l, _ = next(labeled_loader_iter)
+                x_l, y_l, _ = next(labeled_loader_iter)
 
             x_l, y_l = x_l.to(device), y_l.to(device)
             _, labeled_pred_l, z_l = model(x_l)
