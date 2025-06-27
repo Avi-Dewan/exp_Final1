@@ -92,12 +92,8 @@ def init_labeled_clusters(model, labeled_loader, args):
     # Extract features for the labeled data
     for _, (x, label, idx) in enumerate(labeled_loader):
         x = x.to(device)
-        z = model(x)  # Extract features (using the model)
-        print(z)
-        print(z[0].shape)
-        print(z[1].shape)
-        print(z[2].shape)
-        
+        extracted_feat, _ = model(x)  # Extract features (using the model)
+    
         idx = idx.data.cpu().numpy()  # Get indices
         extracted_features[idx, :] = extracted_feat.data.cpu().numpy()  # Store the features
         targets[idx] = label.data.cpu().numpy()  # Store the labels
