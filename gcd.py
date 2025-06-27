@@ -804,7 +804,7 @@ if __name__ == "__main__":
         PI_CL_softBCE_unlabeled_only_train(model, unlabeled_train_loader, unlabeled_eval_loader, args)
 
     elif args.DTC == 'method2':
-        METHOD2_PI_CL_softBCE_repulsion_train(model, labeled_train_loader, labeled_eval_loader, unlabeled_train_loader, unlabeled_eval_loader)
+        METHOD2_PI_CL_softBCE_repulsion_train(model, labeled_train_loader, labeled_eval_loader, unlabeled_train_loader, unlabeled_eval_loader, args)
 
     acc, nmi, ari, _ = test(model, unlabeled_eval_loader, args)
 
