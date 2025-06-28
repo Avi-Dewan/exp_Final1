@@ -887,7 +887,7 @@ if __name__ == "__main__":
     print("Arguments: ", args)
 
     train_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='twice', shuffle=True, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
-    eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes))
+    eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
 
     model = ResNet(BasicBlock, [2,2,2,2], 5).to(device)
     model.load_state_dict(torch.load(args.pretrain_dir, weights_only=True), strict=False)
