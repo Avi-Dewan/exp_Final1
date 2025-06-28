@@ -632,7 +632,7 @@ if __name__ == "__main__":
     labeled_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='test', aug=None, shuffle=False, target_list = range(args.n_labeled_classes))
 
     unlabeled_train_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='twice', shuffle=True, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
-    unlabeled_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes))
+    unlabeled_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes, imbalance_config=args.imbalance_config))
 
 
     model = ResNet(BasicBlock, [2,2,2,2], 5).to(device)
@@ -678,18 +678,10 @@ if __name__ == "__main__":
                                labeled_train_loader, labeled_eval_loader, 
                                unlabeled_train_loader, unlabeled_eval_loader,
                                args)
-    elif args.DTC == 'method1':
-        PI_CL_softBCE_unlabeled_only_train(model, unlabeled_train_loader, unlabeled_eval_loader, args)
-
+        
     elif args.DTC == 'method2':
         METHOD2_PI_CL_softBCE_repulsion_train(model, labeled_train_loader, labeled_eval_loader, unlabeled_train_loader, unlabeled_eval_loader, args)
     
-    elif args.DTC == 'method3':
-        METHOD3_PI_CL_softBCE_contrastive_train(model,labeled_train_loader, labeled_eval_loader, unlabeled_train_loader, unlabeled_eval_loader, args)
-    
-    elif args.DTC == 'method4':
-        METHOD4_PI_CL_softBCE_adaptive_margin_train(model, labeled_train_loader, labeled_eval_loader, unlabeled_train_loader, unlabeled_eval_loader, args)
-
     acc, nmi, ari, _ = test(model, unlabeled_eval_loader, args)
 
     print('Init ACC {:.4f}, NMI {:.4f}, ARI {:.4f}'.format(init_acc, init_nmi, init_ari))
