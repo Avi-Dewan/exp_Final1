@@ -727,7 +727,7 @@ def PI_CL_softBCE_train_Gradient_Similarities(model, train_loader, eva_loader, a
         print(f"{pair}: {avg_sim:.4f}")
 
 
-
+@torch.no_grad()
 def test(model, test_loader, args):
     model.eval()
 
@@ -888,6 +888,8 @@ if __name__ == "__main__":
 
     train_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='twice', shuffle=True, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
     eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes))
+
+    unlabeled_test_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='test', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes))
 
     model = ResNet(BasicBlock, [2,2,2,2], 5).to(device)
     model.load_state_dict(torch.load(args.pretrain_dir, weights_only=True), strict=False)
