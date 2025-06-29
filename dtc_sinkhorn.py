@@ -26,7 +26,7 @@ import seaborn as sns
 from sklearn.manifold import TSNE
 warnings.filterwarnings("ignore", category=UserWarning)
 
-def init_prob_kmeans(model, eval_loader, args):
+def init_prob_kmeans(model, train_loader, args):
     '''
     Initilize Cluster centers.
     Calculate initial acc, nmi, ari.
@@ -36,9 +36,9 @@ def init_prob_kmeans(model, eval_loader, args):
     model = model.to(device)
     # cluster parameter initiate
     model.eval()
-    targets = np.zeros(len(eval_loader.dataset)) # labels storage
-    extracted_features = np.zeros((len(eval_loader.dataset), 512)) # features storage
-    for _, (x, label, idx) in enumerate(eval_loader):
+    targets = np.zeros(len(train_loader.dataset)) # labels storage
+    extracted_features = np.zeros((len(train_loader.dataset), 512)) # features storage
+    for _, (x, label, idx) in enumerate(train_loader):
         x = x.to(device)
         _, extracted_feat = model(x) # model.forward() returns two values: Extracted Features(extracted_feat), Final Features(final_feat), Since, here our linear layer is identity. Extracted features and final features are same
         idx = idx.data.cpu().numpy() # get the index
@@ -887,7 +887,7 @@ if __name__ == "__main__":
     print("Arguments: ", args)
 
     train_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='twice', shuffle=True, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
-    eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
+    eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes))
 
     model = ResNet(BasicBlock, [2,2,2,2], 5).to(device)
     model.load_state_dict(torch.load(args.pretrain_dir, weights_only=True), strict=False)
