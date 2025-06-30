@@ -38,7 +38,7 @@ import seaborn as sns
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
-def init_prob_kmeans(model, train_loader, args):
+def init_prob_kmeans(model, eval_loader, args):
     '''
     Initilize Cluster centers.
     Calculate initial acc, nmi, ari.
@@ -50,10 +50,10 @@ def init_prob_kmeans(model, train_loader, args):
     # cluster parameter initiate
     model.eval()
 
-    targets = np.zeros(len(train_loader.dataset)) # labels storage
-    extracted_features = np.zeros((len(train_loader.dataset), 512)) # features storage
+    targets = np.zeros(len(eval_loader.dataset)) # labels storage
+    extracted_features = np.zeros((len(eval_loader.dataset), 512)) # features storage
 
-    for batch_idx, ((x, _), label, idx) in enumerate(tqdm(train_loader)):
+    for batch_idx, (x, label, idx) in enumerate(tqdm(eval_loader)):
         x = x.to(device)
 
         extracted_feat, _ = model(x) # model.forward() returns two values: Extracted Features(extracted_feat), Final Features(final_feat)
@@ -632,13 +632,13 @@ if __name__ == "__main__":
     labeled_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='test', aug=None, shuffle=False, target_list = range(args.n_labeled_classes))
 
     unlabeled_train_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='twice', shuffle=True, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
-    unlabeled_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes))
+    unlabeled_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
 
 
     model = ResNet(BasicBlock, [2,2,2,2], 5).to(device)
     model.load_state_dict(torch.load(args.pretrain_dir, weights_only=True), strict=False)
     init_feat_extractor = model
-    init_acc, init_nmi, init_ari, init_centers, init_probs = init_prob_kmeans(init_feat_extractor, unlabeled_train_loader, args)
+    init_acc, init_nmi, init_ari, init_centers, init_probs = init_prob_kmeans(init_feat_extractor, unlabeled_eval_loader, args)
     args.p_targets = target_distribution(init_probs) 
 
     init_labeled_centers = init_labeled_clusters(init_feat_extractor, labeled_train_loader, args)
@@ -689,4 +689,4 @@ if __name__ == "__main__":
 
     if args.save_txt:
         with open(args.save_txt_path, 'a') as f:
-            f.write("{:.4f}, {:.4f}, {:.4f}\n".format(acc, nmi, ari))
+            f.write("{:.4f}, {:.4f}, {:.4f}\n".format(acc, nmi, ari))(x, _)
