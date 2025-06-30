@@ -38,7 +38,8 @@ def init_prob_kmeans(model, train_loader, args):
     model.eval()
     targets = np.zeros(len(train_loader.dataset)) # labels storage
     extracted_features = np.zeros((len(train_loader.dataset), 512)) # features storage
-    for _, (x, label, idx) in enumerate(train_loader):
+    
+    for batch_idx, ((x, _), label, idx) in enumerate(tqdm(train_loader)):
         x = x.to(device)
         _, extracted_feat = model(x) # model.forward() returns two values: Extracted Features(extracted_feat), Final Features(final_feat), Since, here our linear layer is identity. Extracted features and final features are same
         idx = idx.data.cpu().numpy() # get the index
@@ -895,7 +896,7 @@ if __name__ == "__main__":
     model.load_state_dict(torch.load(args.pretrain_dir, weights_only=True), strict=False)
     model.linear= Identity()
     init_feat_extractor = model
-    init_acc, init_nmi, init_ari, init_centers, init_probs = init_prob_kmeans(init_feat_extractor, eval_loader, args)
+    init_acc, init_nmi, init_ari, init_centers, init_probs = init_prob_kmeans(init_feat_extractor, train_loader, args)
     args.p_targets = target_distribution(init_probs) 
 
 
