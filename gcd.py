@@ -12,11 +12,11 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
+from utils.enhanced_sinkhorn import ClassAwareSinkhornKnopp
 from utils.sinkhorn_knopp import SinkhornKnopp
 from utils.util import cluster_acc, Identity, AverageMeter, seed_torch, softBCE, str2bool, PairEnum, BCE, myBCE, softBCE_F, softBCE_N
 from utils import ramps 
 from utils.simCLR_loss import SimCLR_Loss
-from utils.methosUtil import separation_loss, SeparatedClusterHead
 from utils.sinkhorn_knopp import SinkhornKnopp
 
 from models.resnet import ResNet, BasicBlock 
@@ -312,6 +312,176 @@ def CE_PI_CL_softBCE_train(model,
     plt.legend()
     plt.savefig(args.model_folder + '/accuracies.png')
 
+def enhancedSinkhornBasedTrain(model, 
+                           labeled_train_loader,
+                           labeled_eval_loader,
+                           unlabeled_train_loader,
+                           unlabeled_eval_loader,
+                           args):
+    """
+    Training with:
+    - Cross-entropy loss for labeled data
+    - KL on sharpened targets
+    - MSE consistency loss
+    - SimCLR contrastive loss
+    - Pairwise BCE loss (ranking-based)
+    """
+    simCLR_loss = SimCLR_Loss(batch_size=args.batch_size, temperature=0.5).to(device)
+    criterion_bce = softBCE_N()
+    ce_criterion = nn.CrossEntropyLoss()
+    sinkhorn_enhanced = ClassAwareSinkhornKnopp(num_iters=3, epsilon=0.05, momentum=0.9)
+
+    optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+
+    accuracies, nmi_scores, ari_scores, f1_scores = [], [], [], []
+
+    for epoch in range(args.epochs):
+        model.train()
+        loss_record = AverageMeter()
+
+        w = args.rampup_coefficient * ramps.sigmoid_rampup(epoch, args.rampup_length)
+        w_softBCE = args.rampup_coefficient_softBCE * ramps.sigmoid_rampup(epoch, args.rampup_length_softBCE)
+
+        labeled_loader_iter = iter(labeled_train_loader)
+        
+        for batch_idx, ((x, x_bar), label, idx) in enumerate(tqdm(unlabeled_train_loader)):
+            x, x_bar = x.to(device), x_bar.to(device)
+
+            extracted_feat, _ , z_unlabeled = model(x)
+            extracted_feat_bar, _ , z_unlabeled_bar = model(x_bar)
+
+            prob = feat2prob(z_unlabeled, model.encoder.center)
+            prob_bar = feat2prob(z_unlabeled_bar, model.encoder.center)
+
+            sharp_loss = F.kl_div(prob.log(), args.p_targets[idx].float().to(device))
+            consistency_loss = F.mse_loss(prob, prob_bar)
+
+            # contrastive loss using internal projector
+            z_i = model.projector_CL(extracted_feat)
+            z_j = model.projector_CL(extracted_feat_bar)
+            contrastive_loss = simCLR_loss(z_i, z_j)
+
+            # pairwise BCE label via ranking
+            rank_feat = extracted_feat.detach()
+            rank_idx = torch.argsort(rank_feat, dim=1, descending=True)
+            rank_idx1, rank_idx2 = PairEnum(rank_idx)
+            rank_idx1, rank_idx2 = rank_idx1[:, :args.topk], rank_idx2[:, :args.topk]
+            rank_idx1, _ = torch.sort(rank_idx1, dim=1)
+            rank_idx2, _ = torch.sort(rank_idx2, dim=1)
+
+            matches = (rank_idx1.unsqueeze(2) == rank_idx2.unsqueeze(1)).sum(dim=2)
+            common_elements = matches.sum(dim=1)
+            pairwise_pseudo_label = common_elements.float() / args.topk
+
+            prob_pair, _ = PairEnum(prob)
+            _, prob_bar_pair = PairEnum(prob_bar)
+
+            bce_loss = criterion_bce(prob_pair, prob_bar_pair, pairwise_pseudo_label)
+
+            # Enhanced Sinkhorn assignments
+
+             # Step 1: Raw logits
+            temp = 0.1
+            logits = -torch.sum((z_unlabeled.unsqueeze(1) - model.encoder.center) ** 2, dim=2) / temp
+            logits_bar = -torch.sum((z_unlabeled_bar.unsqueeze(1) - model.encoder.center) ** 2, dim=2) / temp
+
+            # Step 2: Sinkhorn input stability
+            logits_all = torch.cat([logits, logits_bar], dim=0)
+            logits_all = logits_all - logits_all.max()  # stability
+         
+            # Step 3: Sinkhorn assignments
+            # Use enhanced Sinkhorn
+            pseudo_all = sinkhorn_enhanced(logits_all)
+            pseudo, pseudo_bar = pseudo_all[:logits.size(0)], pseudo_all[logits.size(0):]
+
+            # Step 4: Pairwise soft labels
+            pseudo_i, pseudo_j = PairEnum(pseudo)
+            pseudo_bar_i, pseudo_bar_j = PairEnum(pseudo_bar)
+
+            # === Sinkhorn pseudo-label (s_label)
+            s_label = 0.5 * (
+                (pseudo_i * pseudo_j).sum(dim=1) +
+                (pseudo_bar_i * pseudo_bar_j).sum(dim=1)
+            )
+
+            # === Ranking-based pseudo-label (r_label)
+            rank_feat = extracted_feat.detach()
+            rank_idx = torch.argsort(rank_feat, dim=1, descending=True)
+            rank_idx1, rank_idx2 = PairEnum(rank_idx)
+            rank_idx1, rank_idx2 = rank_idx1[:, :args.topk], rank_idx2[:, :args.topk]
+            rank_idx1, _ = torch.sort(rank_idx1, dim=1)
+            rank_idx2, _ = torch.sort(rank_idx2, dim=1)
+            matches = (rank_idx1.unsqueeze(2) == rank_idx2.unsqueeze(1)).sum(dim=2)
+            common_elements = matches.sum(dim=1)
+            r_label = common_elements.float() / args.topk
+
+            # === Final combined pseudo-label
+            # alpha = args.mix_alpha  # new argument, e.g. 0.5
+            # alpha = 0.5  # new argument, e.g. 0.5
+            # Adaptive mixing coefficient based on training progress
+            # Early training: rely more on ranking, later: more on Sinkhorn
+            epoch_ratio = min(epoch / args.epochs, 1.0)
+            alpha = 0.3 + 0.4 * epoch_ratio  # goes from 0.3 to 0.7
+
+            pairwise_pseudo_label = (1 - alpha) * r_label + alpha * s_label
+            pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
+
+            prob_pair, _ = PairEnum(prob)
+            _, prob_bar_pair = PairEnum(prob_bar)
+
+
+            # Step 6: Final BCE
+            bce_loss = criterion_bce(prob_pair, prob_bar_pair, pairwise_pseudo_label)
+
+            # === Add labeled CE loss ===
+            try:
+                x_l, y_l, _ = next(labeled_loader_iter)
+
+            except StopIteration:
+                labeled_loader_iter = iter(labeled_train_loader)
+                x_l, y_l, _ = next(labeled_loader_iter)
+
+            x_l, y_l = x_l.to(device), y_l.to(device)
+            _, labeled_pred_l, _ = model(x_l)
+
+            ce_loss = ce_criterion(labeled_pred_l, y_l)
+
+            
+            loss =ce_loss + sharp_loss + w * consistency_loss + w * contrastive_loss + w_softBCE * bce_loss
+            loss_record.update(loss.item(), x.size(0))
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+        print(f"Epoch {epoch}: Avg Loss = {loss_record.avg:.4f}")
+        acc, nmi, ari, probs = test(model, unlabeled_eval_loader, args)
+        f1 = test_labeled(model, labeled_eval_loader)
+        
+        accuracies.append(acc)
+        nmi_scores.append(nmi)
+        ari_scores.append(ari)
+        f1_scores.append(f1)
+
+        if epoch % args.update_interval == 0:
+            print("Updating p_targets...")
+            args.p_targets = target_distribution(probs)
+
+    # Save model
+    torch.save({'state_dict': model.state_dict(), 'center': model.encoder.center}, args.model_dir)
+    print(f"Model saved to {args.model_dir}")
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(args.epochs), accuracies, label="ACC")
+    plt.plot(range(args.epochs), nmi_scores, label="NMI")
+    plt.plot(range(args.epochs), ari_scores, label="ARI")
+    plt.plot(range(args.epochs), f1_scores, label="F1(labeled data)")
+    plt.xlabel("Epochs")
+    plt.ylabel("Metric Score")
+    plt.title("Training Metrics")
+    plt.legend()
+    plt.savefig(args.model_folder + '/accuracies.png')
+
 
 def test(model, test_loader, args):
     model.eval()
@@ -498,6 +668,12 @@ if __name__ == "__main__":
    
     if args.DTC == 'CE_PI_CL_softBCE':
         CE_PI_CL_softBCE_train(model, 
+                               labeled_train_loader, labeled_eval_loader, 
+                               unlabeled_train_loader, unlabeled_eval_loader,
+                               args)
+    elif args.DTC == 'sinkhornEnhanced_softBCE':
+        
+        enhancedSinkhornBasedTrain(model, 
                                labeled_train_loader, labeled_eval_loader, 
                                unlabeled_train_loader, unlabeled_eval_loader,
                                args)
