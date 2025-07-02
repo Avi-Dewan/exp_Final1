@@ -449,7 +449,6 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
 
             # print("center stats:", model.center.min().item(), model.center.max().item())
 
-
             # Step 1: Raw logits
             temp = 0.1
             logits = -torch.sum((final_feat.unsqueeze(1) - model.center) ** 2, dim=2) 
@@ -490,8 +489,6 @@ def PI_CL_softBCE_sinkhorn_train(model, train_loader, eva_loader, args):
             alpha = 0.5  # new argument, e.g. 0.5
 
             pairwise_pseudo_label = (1 - alpha) * r_label + alpha * s_label
-            pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
-
             pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
 
           
