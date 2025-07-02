@@ -303,8 +303,8 @@ def CE_PI_CL_softBCE_train(model,
 
              # Step 1: Raw logits
             temp = 0.1
-            logits = -torch.sum((z_unlabeled.unsqueeze(1) - model.center) ** 2, dim=2) 
-            logits_bar = -torch.sum((z_unlabeled_bar.unsqueeze(1) - model.center) ** 2, dim=2) 
+            logits = -torch.sum((z_unlabeled.unsqueeze(1) - model.enocoder.center) ** 2, dim=2) 
+            logits_bar = -torch.sum((z_unlabeled_bar.unsqueeze(1) - model.encoder.center) ** 2, dim=2) 
             
 
             # Step 2: Sinkhorn input stability
