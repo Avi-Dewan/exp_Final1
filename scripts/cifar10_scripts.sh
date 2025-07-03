@@ -36,11 +36,13 @@ echo "Pretrain file: $PRETRAIN_DIR"
 echo "Running configs: $START_INDEX to $END_INDEX"
 echo "Log file: $LOG_FILE"
 
-# Extract configs from JSON file
+# Extract configs from JSON file and create temporary files
 extract_configs() {
     python3 -c "
 import json
 import sys
+import tempfile
+import os
 
 with open('$CONFIG_FILE', 'r') as f:
     configs = json.load(f)
@@ -54,10 +56,18 @@ if start_idx < 0 or start_idx >= total_configs or end_idx < 0 or end_idx >= tota
     print(f'Error: Invalid range {start_idx}-{end_idx} for {total_configs} configs', file=sys.stderr)
     sys.exit(1)
 
-# Output selected configs
+# Create temporary directory for config files
+temp_dir = '/tmp/cifar10_configs'
+os.makedirs(temp_dir, exist_ok=True)
+
+# Create individual config files
 for i in range(start_idx, end_idx + 1):
     config = configs[i]
-    print(f'{i}|||{config[\"name\"]}|||{config[\"config\"]}')
+    config_file = f'{temp_dir}/config_{i}.txt'
+    with open(config_file, 'w') as f:
+        f.write(f'{i}\\n{config[\"name\"]}\\n{config[\"config\"]}')
+
+print(f'{start_idx} {end_idx}')
 "
 }
 
@@ -86,20 +96,43 @@ run_training() {
 echo ""
 echo "Extracting configurations..."
 
-# Get configurations
-CONFIG_OUTPUT=$(extract_configs)
+# Get range information
+RANGE_INFO=$(extract_configs)
+read -r START_ACTUAL END_ACTUAL <<< "$RANGE_INFO"
+
+if [ -z "$START_ACTUAL" ] || [ -z "$END_ACTUAL" ]; then
+    echo "Error: Failed to extract configuration range"
+    exit 1
+fi
 
 # Count configs to run
-CONFIG_COUNT=$(echo "$CONFIG_OUTPUT" | wc -l)
+CONFIG_COUNT=$((END_ACTUAL - START_ACTUAL + 1))
 echo "Will run $CONFIG_COUNT configurations"
 
 # Process each config
 config_counter=1
-echo "$CONFIG_OUTPUT" | while IFS='|||' read -r index config_name config_value; do
+for i in $(seq $START_ACTUAL $END_ACTUAL); do
+    CONFIG_FILE="/tmp/cifar10_configs/config_$i.txt"
+    
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "Error: Config file not found: $CONFIG_FILE"
+        continue
+    fi
+    
+    # Read config file
+    {
+        read -r index
+        read -r config_name
+        read -r config_value
+    } < "$CONFIG_FILE"
+    
     echo "[$config_counter/$CONFIG_COUNT] Processing config $index..."
     run_training "$config_value" "$config_name" "$index"
     config_counter=$((config_counter + 1))
 done
+
+# Cleanup temporary files
+rm -rf /tmp/cifar10_configs
 
 echo "=========================================="
 echo "All training completed!"
