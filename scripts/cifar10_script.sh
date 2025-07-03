@@ -45,7 +45,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 
 # Training parameters
-COMMON_ARGS="--pretrain_dir $PRETRAIN_DIR --DTC sinkhornEnhanced_softBCE --topk 25 --warmup_epochs $WARMUP_EPOCHS --epochs $EPOCHS --rampup_length_softBCE 5 --rampup_coefficient_softBCE 10 --log_file $LOG_FILE"
+COMMON_ARGS="--pretrain_dir $PRETRAIN_DIR --topk 25 --warmup_epochs $WARMUP_EPOCHS --epochs $EPOCHS --rampup_length_softBCE 5 --rampup_coefficient_softBCE 10 --log_file $LOG_FILE"
 
 # Main execution
 python3 -c "
@@ -99,9 +99,11 @@ try:
         try:
             subprocess.run(cmd, env=env, check=True)
             print(f'Completed: {config_name}')
+
         except subprocess.CalledProcessError:
             print(f'Error running config {actual_index}: {config_name}')
             continue
+
         except Exception as e:
             print(f'Unexpected error: {e}')
             continue
@@ -113,9 +115,11 @@ try:
 except FileNotFoundError:
     print(f'Error: Config file not found: {config_file}')
     sys.exit(1)
+
 except json.JSONDecodeError as e:
     print(f'Error parsing JSON config file: {e}')
     sys.exit(1)
+    
 except Exception as e:
     print(f'Error: {e}')
     sys.exit(1)
