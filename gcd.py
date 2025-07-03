@@ -529,7 +529,7 @@ if __name__ == "__main__":
     seed_torch(args.seed)
 
     runner_name = os.path.basename(__file__).split(".")[0]
-    model_dir= args.exp_root + '{}/{}'.format(runner_name)
+    model_dir= args.exp_root + '{}'.format(runner_name)
 
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
