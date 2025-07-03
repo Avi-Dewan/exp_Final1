@@ -169,7 +169,17 @@ def CE_PI_CL_softBCE_train(model,
     optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 
     accuracies, nmi_scores, ari_scores, f1_scores = [], [], [], []
-
+    
+    # Initialize best metrics tracking
+    best_acc = 0.0
+    best_nmi = 0.0
+    best_ari = 0.0
+    best_f1 = 0.0
+    best_epoch_acc = 0
+    best_epoch_nmi = 0
+    best_epoch_ari = 0
+    best_epoch_f1 = 0
+    
     for epoch in range(args.epochs):
         model.train()
         loss_record = AverageMeter()
@@ -288,6 +298,23 @@ def CE_PI_CL_softBCE_train(model,
         acc, nmi, ari, probs = test(model, unlabeled_eval_loader, args)
         f1 = test_labeled(model, labeled_eval_loader)
         
+        # Track best metrics
+        if acc > best_acc:
+            best_acc = acc
+            best_epoch_acc = epoch
+            
+        if nmi > best_nmi:
+            best_nmi = nmi
+            best_epoch_nmi = epoch
+            
+        if ari > best_ari:
+            best_ari = ari
+            best_epoch_ari = epoch
+
+        if f1 > best_f1:
+            best_f1 = f1
+            best_epoch_f1 = epoch
+
         accuracies.append(acc)
         nmi_scores.append(nmi)
         ari_scores.append(ari)
@@ -296,6 +323,17 @@ def CE_PI_CL_softBCE_train(model,
         if epoch % args.update_interval == 0:
             print("Updating p_targets...")
             args.p_targets = target_distribution(probs)
+
+     # Print best metrics summary
+    print("\n" + "="*60)
+    print("BEST METRICS SUMMARY:")
+    print("="*60)
+    print(f"Best ACC: {best_acc:.4f} (achieved at epoch {best_epoch_acc})")
+    print(f"Best NMI: {best_nmi:.4f} (achieved at epoch {best_epoch_nmi})")
+    print(f"Best ARI: {best_ari:.4f} (achieved at epoch {best_epoch_ari})")
+    print(f"Best f1: {best_f1:.4f} (achieved at epoch {best_epoch_f1})")
+    print("="*60)
+
 
     # Save model
     torch.save({'state_dict': model.state_dict(), 'center': model.encoder.center}, args.model_dir)
@@ -311,6 +349,8 @@ def CE_PI_CL_softBCE_train(model,
     plt.title("Training Metrics")
     plt.legend()
     plt.savefig(args.model_folder + '/accuracies.png')
+
+    return best_acc, best_nmi, best_ari, best_f1
 
 def enhancedSinkhornBasedTrain(model, 
                            labeled_train_loader,
@@ -664,24 +704,22 @@ if __name__ == "__main__":
 
     warmup_train(model, unlabeled_train_loader, unlabeled_eval_loader, args)
 
-
-   
-    if args.DTC == 'CE_PI_CL_softBCE':
-        CE_PI_CL_softBCE_train(model, 
-                               labeled_train_loader, labeled_eval_loader, 
-                               unlabeled_train_loader, unlabeled_eval_loader,
-                               args)
-    elif args.DTC == 'sinkhornEnhanced_softBCE':
-        
-        enhancedSinkhornBasedTrain(model, 
-                               labeled_train_loader, labeled_eval_loader, 
-                               unlabeled_train_loader, unlabeled_eval_loader,
-                               args)
+    # Main training and get best metrics
+    best_acc, best_nmi, best_ari, best_f1 = CE_PI_CL_softBCE_train(model, 
+                            labeled_train_loader, labeled_eval_loader, 
+                            unlabeled_train_loader, unlabeled_eval_loader,
+                            args)
     
     acc, nmi, ari, _ = test(model, unlabeled_eval_loader, args)
 
+    print('\n' + '='*60)
+    print('FINAL RESULTS SUMMARY:')
+    print('='*60)
     print('Init ACC {:.4f}, NMI {:.4f}, ARI {:.4f}'.format(init_acc, init_nmi, init_ari))
     print('Final ACC {:.4f}, NMI {:.4f}, ARI {:.4f}'.format(acc, nmi, ari))
+    print('Best ACC {:.4f}, NMI {:.4f}, ARI {:.4f}'.format(best_acc, best_nmi, best_ari))
+    precision_score('Best labeled f1 sore {:.4f}'.format(best_f1))
+    print('='*60)
 
     if args.save_txt:
         with open(args.save_txt_path, 'a') as f:
