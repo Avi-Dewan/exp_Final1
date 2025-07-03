@@ -1,10 +1,110 @@
 [
   {
+    "name": "uniform",
+    "config": "[]"
+  },
+  {
+    "name": "class9_10percent",
+    "config": "[{'class': 9, 'percentage': 10}]"
+  },
+  {
+    "name": "class9_20percent", 
+    "config": "[{'class': 9, 'percentage': 20}]"
+  },
+  {
+    "name": "class9_30percent",
+    "config": "[{'class': 9, 'percentage': 30}]"
+  },
+  {
+    "name": "class9_40percent",
+    "config": "[{'class': 9, 'percentage': 40}]"
+  },
+  {
+    "name": "class9_50percent",
+    "config": "[{'class': 9, 'percentage': 50}]"
+  },
+  {
+    "name": "class9_60percent",
+    "config": "[{'class': 9, 'percentage': 60}]"
+  },
+  {
+    "name": "class9_70percent",
+    "config": "[{'class': 9, 'percentage': 70}]"
+  },
+  {
+    "name": "class9_80percent",
+    "config": "[{'class': 9, 'percentage': 80}]"
+  },
+  {
+    "name": "class89_10percent",
+    "config": "[{'class': 8, 'percentage': 10}, {'class': 9, 'percentage': 10}]"
+  },
+  {
+    "name": "class89_20percent",
+    "config": "[{'class': 8, 'percentage': 20}, {'class': 9, 'percentage': 20}]"
+  },
+  {
+    "name": "class89_30percent",
+    "config": "[{'class': 8, 'percentage': 30}, {'class': 9, 'percentage': 30}]"
+  },
+  {
+    "name": "class89_40percent",
+    "config": "[{'class': 8, 'percentage': 40}, {'class': 9, 'percentage': 40}]"
+  },
+  {
+    "name": "class89_50percent",
+    "config": "[{'class': 8, 'percentage': 50}, {'class': 9, 'percentage': 50}]"
+  },
+  {
+    "name": "class89_60percent",
+    "config": "[{'class': 8, 'percentage': 60}, {'class': 9, 'percentage': 60}]"
+  },
+  {
+    "name": "class89_70percent",
+    "config": "[{'class': 8, 'percentage': 70}, {'class': 9, 'percentage': 70}]"
+  },
+  {
+    "name": "class689_10percent",
+    "config": "[{'class': 6, 'percentage': 10}, {'class': 8, 'percentage': 10}, {'class': 9, 'percentage': 10}]"
+  },
+  {
+    "name": "class689_20percent",
+    "config": "[{'class': 6, 'percentage': 20}, {'class': 8, 'percentage': 20}, {'class': 9, 'percentage': 20}]"
+  },
+  {
+    "name": "class689_30percent",
+    "config": "[{'class': 6, 'percentage': 30}, {'class': 8, 'percentage': 30}, {'class': 9, 'percentage': 30}]"
+  },
+  {
+    "name": "class689_40percent",
+    "config": "[{'class': 6, 'percentage': 40}, {'class': 8, 'percentage': 40}, {'class': 9, 'percentage': 40}]"
+  },
+  {
+    "name": "class689_50percent",
+    "config": "[{'class': 6, 'percentage': 50}, {'class': 8, 'percentage': 50}, {'class': 9, 'percentage': 50}]"
+  },
+  {
+    "name": "class689_60percent",
+    "config": "[{'class': 6, 'percentage': 60}, {'class': 8, 'percentage': 60}, {'class': 9, 'percentage': 60}]"
+  },
+  {
+    "name": "class689_70percent",
+    "config": "[{'class': 6, 'percentage': 70}, {'class': 8, 'percentage': 70}, {'class': 9, 'percentage': 70}]"
+  },
+  {
     "name": "left skew",
     "config": "[{'class': 5, 'percentage': 80}, {'class': 6, 'percentage': 60}, {'class': 7, 'percentage': 40}, {'class': 8, 'percentage': 20}]"
   },
   {
     "name": "right skew", 
     "config": "[{'class': 6, 'percentage': 20}, {'class': 7, 'percentage': 40}, {'class': 8, 'percentage': 60}, {'class': 9, 'percentage': 80} ]"
+  },
+  {
+    "name": "zigzag",
+    "config": "[{'class': 5, 'percentage': 60}, {'class': 6, 'percentage': 30}, {'class': 7, 'percentage': 50}, {'class': 8, 'percentage': 40}, {'class': 9, 'percentage': 80}]"
+  },
+  {
+    "name": "normal",
+    "config": "[{'class': 5, 'percentage': 60}, {'class': 6, 'percentage': 30}, {'class': 8, 'percentage': 30}, {'class': 9, 'percentage': 60}]"
   }
 ]
