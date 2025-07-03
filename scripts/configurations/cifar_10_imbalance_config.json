@@ -1,0 +1,10 @@
+[
+  {
+    "name": "mild_1",
+    "config": "[{'class': 5, 'percentage': 90}, {'class': 6, 'percentage': 85}]"
+  },
+  {
+    "name": "mild_2", 
+    "config": "[{'class': 6, 'percentage': 95}, {'class': 9, 'percentage': 90}]"
+  }
+]

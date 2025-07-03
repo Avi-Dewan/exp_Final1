@@ -1,4 +1,7 @@
 import torch
+import csv
+import datetime
+import json
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
@@ -605,6 +608,48 @@ def plot_tsne(model, test_loader, args):
     plt.show()
 
 
+def log_results(log_file, config_name, imbalance_config, final_acc, final_nmi, final_ari, best_acc, best_nmi, best_ari, best_f1):
+    """
+    Log training results to CSV file
+    """
+    # Create directory if it doesn't exist
+    import os
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    
+    # Check if file exists to determine if we need to write header
+    file_exists = os.path.isfile(log_file)
+    
+    # Get current timestamp
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Convert imbalance_config to string if it's a list/dict
+    if isinstance(imbalance_config, (list, dict)):
+        imbalance_config_str = json.dumps(imbalance_config).replace('"', "'")
+    else:
+        imbalance_config_str = str(imbalance_config)
+    
+    # Write to log file
+    with open(log_file, 'a', newline='') as f:
+        writer = csv.writer(f)
+        
+        # Write header if file is new
+        if not file_exists:
+            writer.writerow([
+                'timestamp', 'config_name', 'imbalance_config', 
+                'final_acc', 'final_nmi', 'final_ari', 
+                'best_acc', 'best_nmi', 'best_ari', 'best_f1'
+            ])
+        
+        # Write data row
+        writer.writerow([
+            timestamp, config_name, imbalance_config_str,
+            f"{final_acc:.4f}", f"{final_nmi:.4f}", f"{final_ari:.4f}",
+            f"{best_acc:.4f}", f"{best_nmi:.4f}", f"{best_ari:.4f}", f"{best_f1:.4f}"
+        ])
+    
+    print(f"Results logged to: {log_file}")
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(
@@ -637,6 +682,10 @@ if __name__ == "__main__":
     parser.add_argument('--proj_dim_unlabeled', default=20, type=int)
     parser.add_argument("--imbalance_config", type=str, default=None, help="Class imbalance configuration (e.g., [{'class': 9, 'percentage': 20}, {'class': 7, 'percentage': 5}])")
     
+     # Add new arguments for logging
+    parser.add_argument('--log_file', type=str, default=None, help='Path to log file for results')
+    parser.add_argument('--config_name', type=str, default='default', help='Name of the configuration being run')
+
     parser.add_argument('--save_txt', default=False, type=str2bool, help='save txt or not', metavar='BOOL')
     parser.add_argument('--pretrain_dir', type=str, default='./data/experiments/cifar10_classif/resnet18_cifar10_classif_5.pth')
     parser.add_argument('--dataset_root', type=str, default='./data/datasets/CIFAR/')
@@ -720,6 +769,16 @@ if __name__ == "__main__":
     print('Best ACC {:.4f}, NMI {:.4f}, ARI {:.4f}'.format(best_acc, best_nmi, best_ari))
     precision_score('Best labeled f1 sore {:.4f}'.format(best_f1))
     print('='*60)
+
+    # Log results if log_file is provided
+    if args.log_file:
+        log_results(
+            args.log_file, 
+            args.config_name, 
+            args.imbalance_config, 
+            acc, nmi, ari, 
+            best_acc, best_nmi, best_ari, best_f1
+        )
 
     if args.save_txt:
         with open(args.save_txt_path, 'a') as f:
