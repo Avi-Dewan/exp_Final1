@@ -48,7 +48,7 @@ fi
 echo "Config file found, reading configurations..."
 
 # Training parameters
-COMMON_ARGS="--pretrain_dir $PRETRAIN_DIR --DTC sinkhornEnhanced_softBCE --topk 25 --warmup_epochs 10 --epochs 200 --rampup_length_softBCE 5 --rampup_coefficient_softBCE 10 --log_file $LOG_FILE"
+COMMON_ARGS="--pretrain_dir $PRETRAIN_DIR --DTC sinkhornEnhanced_softBCE --topk 25 --warmup_epochs 1 --epochs 2 --rampup_length_softBCE 5 --rampup_coefficient_softBCE 10 --log_file $LOG_FILE"
 
 # Run training
 run_training() {
