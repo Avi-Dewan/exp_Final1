@@ -134,13 +134,14 @@ def plot_features_And_calculate_metric(model, test_loader, save_path, epoch, dev
     model.eval()
     targets = np.array([])
     outputs = np.zeros((len(test_loader.dataset), 512 * BasicBlock.expansion)) 
-    
-    for batch_idx, (x, label, idx) in enumerate(tqdm(test_loader)):
-        x, label = x.to(device), label.to(device)
-        _, output = model(x)
-       
-        outputs[idx, :] = output.cpu().detach().numpy()
-        targets = np.append(targets, label.cpu().numpy())
+
+    with torch.no_grad():
+        for batch_idx, (x, label, idx) in enumerate(tqdm(test_loader)):
+            x, label = x.to(device), label.to(device)
+            _, output = model(x)
+        
+            outputs[idx, :] = output.cpu().detach().numpy()
+            targets = np.append(targets, label.cpu().numpy())
 
     # print("Unique labels:", np.unique(targets))
 

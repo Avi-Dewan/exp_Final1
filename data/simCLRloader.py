@@ -27,6 +27,7 @@ class ContrastiveTransformations(object):
         return [self.base_transforms(x) for i in range(self.n_views)]
 
 class SimCLRDataset(data.Dataset):
+
     def __init__(self, dataset_name, split, dataset_root=None):
         self.split = split.lower()
         self.dataset_name =  dataset_name.lower()
@@ -94,6 +95,7 @@ class SimCLRDataset(data.Dataset):
                 root = dataset_root, train=self.split=='train',
                 download=True, transform=self.transform)
 
+            self._print_class_distribution()
             
         # elif self.dataset_name=='svhn':
         #     self.mean_pix = [0.485, 0.456, 0.406]
@@ -122,3 +124,24 @@ class SimCLRDataset(data.Dataset):
 
 
 
+    def _print_class_distribution(self):
+        """
+        Print class distribution in the format: class X: count
+        """
+        if hasattr(self.data, 'targets'):
+            labels = self.data.targets
+        elif hasattr(self.data, 'labels'):
+            labels = self.data.labels
+        else:
+            labels = []
+            for i in tqdm(range(len(self.data)), desc=f"Extracting labels for {self.name}"):
+                _, label = self.data[i]
+                labels.append(label)
+
+        if hasattr(labels, 'tolist'):
+            labels = labels.tolist()
+
+        class_counts = Counter(labels)
+        print(f"\nClass distribution for {self.name}:")
+        for class_idx in sorted(class_counts.keys()):
+            print(f"  class {class_idx}: {class_counts[class_idx]}")
