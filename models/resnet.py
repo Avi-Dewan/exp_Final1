@@ -80,9 +80,5 @@ if __name__ == '__main__':
     device = torch.device('cuda')
     num_labeled_classes = 10
     num_unlabeled_classes = 20
-    model = ResNet(BasicBlock, [2,2,2,2],num_labeled_classes, num_unlabeled_classes)
-    model = model.to(device)
-    print(model)
-    y1, y2 = model(Variable(torch.randn(256,3,32,32).to(device)))
-    print(y1.size(), y2.size())
+   
 

@@ -17,6 +17,7 @@ def train(model, train_loader, labeled_eval_loader, args):
     optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
     exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)
     criterion = nn.CrossEntropyLoss() 
+    
     for epoch in range(args.epochs):
         loss_record = AverageMeter()
         model.train()
@@ -33,6 +34,7 @@ def train(model, train_loader, labeled_eval_loader, args):
         print('test on labeled classes')
         test(model, labeled_eval_loader, args)
 
+@torch.no_grad()
 def test(model, test_loader, args):
     model.eval()
     preds = []

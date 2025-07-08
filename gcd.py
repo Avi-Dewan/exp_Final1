@@ -42,6 +42,7 @@ import seaborn as sns
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
+@torch.no_grad()
 def init_prob_kmeans(model, eval_loader, args):
     '''
     Initilize Cluster centers.
@@ -355,6 +356,7 @@ def CE_PI_CL_softBCE_train(model,
 
     return best_acc, best_nmi, best_ari, best_f1
 
+@torch.no_grad()
 def test(model, test_loader, args):
     model.eval()
 
@@ -384,6 +386,7 @@ def test(model, test_loader, args):
 
     return acc, nmi, ari, probs 
 
+@torch.no_grad()
 def test_labeled(model, test_loader):
     model.eval()
     preds = []
@@ -410,6 +413,7 @@ def test_labeled(model, test_loader):
 
     return f1
 
+@torch.no_grad()
 def plot_tsne(model, test_loader, args):
     """Generates a t-SNE plot of the learned features."""
     model.eval()

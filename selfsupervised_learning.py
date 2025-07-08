@@ -31,6 +31,14 @@ import matplotlib.pyplot as plt
 import csv
 
 
+def get_resnet_blocks(dataset_name):
+    """
+    Returns the appropriate ResNet block configuration based on dataset
+    """
+    if dataset_name == 'cifar100':
+        return [3, 4, 6, 3]  # ResNet-34
+    else:
+        return [2, 2, 2, 2]  # ResNet-18 for 
 
 def train(model, device, train_loader, optimizer, scheduler, criterion, epoch, total_epochs):
     model.train()
@@ -100,34 +108,7 @@ def load_model(model, optimizer, scheduler, path, device):
         start_epoch = 0
     return model, optimizer, scheduler, start_epoch
 
-
-# def plot_features(model, test_loader, save_path, epoch, device,  args):
-#     model.eval()
-    
-#     targets=np.array([])
-#     outputs = np.zeros((len(test_loader.dataset), 
-#                       512 * BasicBlock.expansion)) 
-    
-#     for batch_idx, (x, label, idx) in enumerate(tqdm(test_loader)):
-#         x, label = x.to(device), label.to(device)
-#         _, output = model(x)
-       
-#         outputs[idx, :] = output.cpu().detach().numpy()
-#         targets=np.append(targets, label.cpu().numpy())
-
-   
-    
-#     # print('plotting t-SNE ...') 
-#     # tsne plot
-#      # Create t-SNE visualization
-#     X_embedded = TSNE(n_components=2).fit_transform(outputs)  # Use meaningful features for t-SNE
-
-#     plt.figure(figsize=(8, 6))
-#     plt.scatter(X_embedded[:, 0], X_embedded[:, 1], c=targets, cmap='viridis')
-#     plt.title("t-SNE Visualization of unlabeled Features on " + args.dataset_name + " unlabelled set - epoch" + str(epoch))
-#     plt.savefig(save_path+ '/' + args.dataset_name + '_epoch'+ str(epoch) + '.png')
-
-
+@torch.no_grad()
 def plot_features_And_calculate_metric(model, test_loader, save_path, epoch, device, args):
     torch.manual_seed(1)
     model = model.to(device)
