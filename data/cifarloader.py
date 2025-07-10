@@ -383,14 +383,21 @@ def CIFAR100Loader(root, batch_size, split='train', num_workers=2,  aug=None, sh
 
     dataset = CIFAR100Data(root, split, aug, target_list)
     
+    if imbalance_config is not None:
+        imbalance_config = ast.literal_eval(imbalance_config)
+        apply_class_imbalance(dataset, imbalance_config)  # Apply the imbalance configuration
+
     # Determine the number of samples to drop if drop_last is True
     if drop_last:
         num_samples = len(dataset)
         num_batches = num_samples // batch_size
         indices = list(range(num_batches * batch_size))  # Adjust the indices to ensure full batches
         dataset = data.Subset(dataset, indices)
+
+    print_class_distribution(dataset, name=f"CIFAR100-{split}")
     
     loader = data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, drop_last=drop_last)
+
     return loader
 
 # def CIFAR100Loader(root, batch_size, split='train', num_workers=2,  aug=None, shuffle=True, target_list=range(80)):

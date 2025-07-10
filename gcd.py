@@ -28,7 +28,7 @@ from models.resnetMultiHead import ResNetMultiHead
 
 from modules.module import feat2prob, target_distribution 
 
-from data.cifarloader import CIFAR10Loader
+from data.cifarloader import CIFAR100Loader, CIFAR10Loader
 
 from tqdm import tqdm
 
@@ -81,43 +81,6 @@ def init_prob_kmeans(model, eval_loader, args):
     # Find the probability distribution by calculating distance from the center
     probs = feat2prob(torch.from_numpy(extracted_features), torch.from_numpy(kmeans.cluster_centers_))
     return acc, nmi, ari, kmeans.cluster_centers_, probs 
-
-def init_labeled_clusters(model, labeled_loader, args):
-    """
-    Initialize cluster centers using labeled data.
-    """
-    torch.manual_seed(1)
-    model = model.to(device)
-    
-    model.eval()
-
-    targets = np.zeros(len(labeled_loader.dataset))  # Store labels
-    extracted_features = np.zeros((len(labeled_loader.dataset), 512))  # Store features
-
-    # Extract features for the labeled data
-    for _, (x, label, idx) in enumerate(labeled_loader):
-        x = x.to(device)
-        extracted_feat, _ = model(x)  # Extract features (using the model)
-    
-        idx = idx.data.cpu().numpy()  # Get indices
-        extracted_features[idx, :] = extracted_feat.data.cpu().numpy()  # Store the features
-        targets[idx] = label.data.cpu().numpy()  # Store the labels
-
-     # pca = PCA(n_components=args.n_unlabeled_classes)
-    pca = PCA(n_components=20) # PCA for dimensionality reduction PCA: 512 -> 20
-
-    extracted_features = pca.fit_transform(extracted_features) # fit the PCA model and transform the features
-
-    # Now, calculate the center for each labeled class
-    labeled_centers = np.zeros((args.n_labeled_classes, extracted_features.shape[1]))
-
-    for i in range(args.n_labeled_classes):
-        labeled_centers[i] = np.mean(extracted_features[targets == i], axis=0)
-
-    # Convert to tensor and move to GPU if needed
-    labeled_centers = torch.tensor(labeled_centers).to(device)
-
-    return labeled_centers
 
 def warmup_train(model, train_loader, eva_loader, args):
     '''
@@ -488,7 +451,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
             description='cluster',
             formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    
+    parser.add_argument('--dataset_name', type=str, default='cifar10', choices=['cifar10', 'cifar100'], help="Choose the dataset ('cifar10' or 'cifar100')")
     parser.add_argument('--warmup_lr', type=float, default=0.1)
     parser.add_argument('--lr', type=float, default=0.05)
     parser.add_argument('--momentum', type=float, default=0.9)
@@ -520,7 +483,7 @@ if __name__ == "__main__":
     parser.add_argument('--config_name', type=str, default='default', help='Name of the configuration being run')
 
     parser.add_argument('--save_txt', default=False, type=str2bool, help='save txt or not', metavar='BOOL')
-    parser.add_argument('--pretrain_dir', type=str, default='./data/experiments/cifar10_classif/resnet18_cifar10_classif_5.pth')
+    parser.add_argument('--pretrain_dir', type=str, default='./data/experiments/cifar10_classify/resnet18_cifar10_classif_5.pth')
     parser.add_argument('--dataset_root', type=str, default='./data/datasets/CIFAR/')
     parser.add_argument('--exp_root', type=str, default='./data/experiments/')
     parser.add_argument('--model_name', type=str, default='resnet18')
@@ -544,25 +507,33 @@ if __name__ == "__main__":
 
     print("Arguments: ", args)
 
-    labeled_train_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='once', shuffle=True, target_list = range(args.n_labeled_classes))
-    labeled_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='test', aug=None, shuffle=False, target_list = range(args.n_labeled_classes))
+    if args.dataset_name == 'cifar10':
+        labeled_train_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='once', shuffle=True, target_list = range(args.n_labeled_classes))
+        labeled_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='test', aug=None, shuffle=False, target_list = range(args.n_labeled_classes))
 
-    unlabeled_train_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='twice', shuffle=True, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
-    unlabeled_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
+        unlabeled_train_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='twice', shuffle=True, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
+        unlabeled_eval_loader = CIFAR10Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes+args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
+
+    elif args.dataset_name == 'cifar100':
+        labeled_train_loader = CIFAR100Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='once', shuffle=True, target_list=range(args.n_labeled_classes))
+        labeled_eval_loader = CIFAR100Loader(root=args.dataset_root, batch_size=args.batch_size, split='test', aug=None, shuffle=False, target_list=range(args.n_labeled_classes))
+        unlabeled_train_loader = CIFAR100Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='twice', shuffle=True, target_list=range(args.n_labeled_classes, args.n_labeled_classes + args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
+        unlabeled_eval_loader = CIFAR100Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes + args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
+
+    else:
+        raise ValueError(f"Dataset {args.dataset_name} not supported. Please choose 'cifar10' or 'cifar100'.")
 
 
-    model = ResNet(BasicBlock, [2,2,2,2], 5).to(device)
+    model = ResNet(BasicBlock, [2,2,2,2], args.n_labeled_classes).to(device)
     model.load_state_dict(torch.load(args.pretrain_dir, weights_only=True), strict=False)
     init_feat_extractor = model
     init_acc, init_nmi, init_ari, init_centers, init_probs = init_prob_kmeans(init_feat_extractor, unlabeled_eval_loader, args)
     args.p_targets = target_distribution(init_probs) 
 
-    init_labeled_centers = init_labeled_clusters(init_feat_extractor, labeled_train_loader, args)
-
     model = ResNetMultiHead(BasicBlock, [2, 2, 2, 2], 
                         feat_dim=512, 
-                        n_labeled_classes=5, 
-                        n_unlabeled_classes=5,
+                        n_labeled_classes=args.n_labeled_classes, 
+                        n_unlabeled_classes=args.n_unlabeled_classes,
                         proj_dim_cl=128, 
                         proj_dim_unlabeled=20).to(device)
     
@@ -570,10 +541,6 @@ if __name__ == "__main__":
 
     model.encoder.center = Parameter(torch.Tensor(args.n_unlabeled_classes, 20))
     model.encoder.center.data = torch.tensor(init_centers).float().to(device)
-
-
-    model.encoder.labeledCenter = Parameter(torch.Tensor(args.n_labeled_classes, 20))
-    model.encoder.labeledCenter.data = torch.tensor(init_labeled_centers).float().to(device)
     
     print('---------------------------------')
     print(model)
@@ -611,7 +578,3 @@ if __name__ == "__main__":
             acc, nmi, ari, 
             best_acc, best_nmi, best_ari, best_f1
         )
-
-    if args.save_txt:
-        with open(args.save_txt_path, 'a') as f:
-            f.write("{:.4f}, {:.4f}, {:.4f}\n".format(acc, nmi, ari))(x, _)
