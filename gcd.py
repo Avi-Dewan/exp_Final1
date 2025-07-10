@@ -15,7 +15,6 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
-from utils.enhanced_sinkhorn import ClassAwareSinkhornKnopp
 from utils.sinkhorn_knopp import SinkhornKnopp
 from utils.util import cluster_acc, Identity, AverageMeter, seed_torch, softBCE, str2bool, PairEnum, BCE, myBCE, softBCE_F, softBCE_N
 from utils import ramps 
