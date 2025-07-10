@@ -516,6 +516,7 @@ if __name__ == "__main__":
     elif args.dataset_name == 'cifar100':
         labeled_train_loader = CIFAR100Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='once', shuffle=True, target_list=range(args.n_labeled_classes))
         labeled_eval_loader = CIFAR100Loader(root=args.dataset_root, batch_size=args.batch_size, split='test', aug=None, shuffle=False, target_list=range(args.n_labeled_classes))
+        
         unlabeled_train_loader = CIFAR100Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug='twice', shuffle=True, target_list=range(args.n_labeled_classes, args.n_labeled_classes + args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
         unlabeled_eval_loader = CIFAR100Loader(root=args.dataset_root, batch_size=args.batch_size, split='train', aug=None, shuffle=False, target_list=range(args.n_labeled_classes, args.n_labeled_classes + args.n_unlabeled_classes), imbalance_config=args.imbalance_config)
 

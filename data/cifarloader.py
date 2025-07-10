@@ -379,7 +379,7 @@ def CIFAR100Data(root, split='train', aug=None, target_list=range(80)):
     return dataset
 
 
-def CIFAR100Loader(root, batch_size, split='train', num_workers=2,  aug=None, shuffle=True, target_list=range(80), drop_last = True):
+def CIFAR100Loader(root, batch_size, split='train', num_workers=2,  aug=None, shuffle=True, target_list=range(80), drop_last = True, imbalance_config=None):
 
     dataset = CIFAR100Data(root, split, aug, target_list)
     
