@@ -13,6 +13,18 @@ import numpy as np
 import os
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
+
+
+def get_resnet_blocks(dataset_name):
+    """
+    Returns the appropriate ResNet block configuration based on dataset
+    """
+    if dataset_name == 'cifar100':
+        return [3, 4, 6, 3]  # ResNet-34
+    else:
+        return [2, 2, 2, 2]  # ResNet-18
+
+
 def train(model, train_loader, labeled_eval_loader, args):
     optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
     exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)
@@ -89,7 +101,12 @@ if __name__ == "__main__":
 
 
     # Load the feature Extractor
-    model = ResNet(BasicBlock, [2,2,2,2], args.num_labeled_classes).to(device)
+    num_blocks = get_resnet_blocks(args.dataset_name)
+    resnet_type = "ResNet-34" if args.dataset_name == 'cifar100' else "ResNet-18"
+    
+    print(f"Using {resnet_type} for {args.dataset_name} with blocks {num_blocks}")
+
+    model = ResNet(BasicBlock, num_blocks, args.num_labeled_classes).to(device)
     state_dict = torch.load(args.pretrained_dir)
     model.load_state_dict(state_dict, strict=False)
 
