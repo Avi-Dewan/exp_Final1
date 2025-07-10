@@ -115,14 +115,13 @@ def plot_features_And_calculate_metric(model, test_loader, save_path, epoch, dev
     model.eval()
     targets = np.array([])
     outputs = np.zeros((len(test_loader.dataset), 512 * BasicBlock.expansion)) 
-
-    with torch.no_grad():
-        for batch_idx, (x, label, idx) in enumerate(tqdm(test_loader)):
-            x, label = x.to(device), label.to(device)
-            _, output = model(x)
-        
-            outputs[idx, :] = output.cpu().detach().numpy()
-            targets = np.append(targets, label.cpu().numpy())
+    
+    for batch_idx, (x, label, idx) in enumerate(tqdm(test_loader)):
+        x, label = x.to(device), label.to(device)
+        _, output = model(x)
+       
+        outputs[idx, :] = output.cpu().detach().numpy()
+        targets = np.append(targets, label.cpu().numpy())
 
     # print("Unique labels:", np.unique(targets))
 
@@ -245,7 +244,12 @@ def main():
         
         args.n_unlabeled_classes = 20
    
-    num_blocks = [2, 2, 2, 2]  # Example for ResNet-18
+    # Conditionally select ResNet architecture based on dataset
+    num_blocks = get_resnet_blocks(args.dataset_name)
+    resnet_type = "ResNet-34" if args.dataset_name == 'cifar100' else "ResNet-18"
+    
+    print(f"Using {resnet_type} for {args.dataset_name} with blocks {num_blocks}")
+    
     model = PreModel(BasicBlock, num_blocks) # Feature Extractor -> Projection Head
     model = model.to(device)
 
@@ -286,8 +290,6 @@ def main():
     print("-------------------------------------")
 
 
-    # worst_loss = 101
-    
 
     for epoch in range(start_epoch, args.epochs):
         print(f"Epoch [{epoch}/{args.epochs}]")
@@ -306,12 +308,6 @@ def main():
         avg_val_loss = test(model, device, dloader_test, criterion, epoch, args.epochs)
         val_loss.append(avg_val_loss)
 
-        # is_best = avg_val_loss < worst_loss 
-        # worst_loss = min(avg_val_loss, worst_loss)
-
-        # if is_best and epoch % 10 == 0:
-        #     torch.save(model.feature_extractor.state_dict(), args.model_dir)
-        #     print(f"Model saved to {args.model_dir}")
     
         print(f"Epoch [{epoch}/{args.epochs}] Training Loss: {avg_tr_loss:.4f}")
         print(f"Epoch [{epoch}/{args.epochs}] Validation Loss: {avg_val_loss:.4f}")

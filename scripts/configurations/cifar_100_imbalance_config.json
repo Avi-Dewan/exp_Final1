@@ -32,10 +32,6 @@
     "config": "[{'class': 99, 'percentage': 70}]"
   },
   {
-    "name": "class99_80percent",
-    "config": "[{'class': 99, 'percentage': 80}]"
-  },
-  {
     "name": "class99_95_10percent",
     "config": "[{'class': 95, 'percentage': 10}, {'class': 99, 'percentage': 10}]"
   },
