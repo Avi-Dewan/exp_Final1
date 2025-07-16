@@ -106,5 +106,25 @@
   {
     "name": "normal",
     "config": "[{'class': 5, 'percentage': 60}, {'class': 6, 'percentage': 30}, {'class': 8, 'percentage': 30}, {'class': 9, 'percentage': 60}]"
+  },
+  {
+    "name": "class9_90percent",
+    "config": "[{'class': 9, 'percentage': 90}]"
+  },
+  {
+    "name": "class89_80percent",
+    "config": "[{'class': 8, 'percentage': 80}, {'class': 9, 'percentage': 80}]"
+  },
+  {
+    "name": "class89_90percent",
+    "config": "[{'class': 8, 'percentage': 80}, {'class': 9, 'percentage': 80}]"
+  },
+  {
+    "name": "class689_80percent",
+    "config": "[{'class': 6, 'percentage': 80}, {'class': 8, 'percentage': 80}, {'class': 9, 'percentage': 80}]"
+  },
+  {
+    "name": "class689_90percent",
+    "config": "[{'class': 6, 'percentage': 90}, {'class': 8, 'percentage': 90}, {'class': 9, 'percentage': 90}]"
   }
 ]
