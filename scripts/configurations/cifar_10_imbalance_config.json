@@ -117,7 +117,7 @@
   },
   {
     "name": "class89_90percent",
-    "config": "[{'class': 8, 'percentage': 80}, {'class': 9, 'percentage': 80}]"
+    "config": "[{'class': 8, 'percentage': 90}, {'class': 9, 'percentage': 90}]"
   },
   {
     "name": "class689_80percent",
