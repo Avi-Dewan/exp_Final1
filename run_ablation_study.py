@@ -113,7 +113,7 @@ def warmup_train(model, train_loader, eva_loader, args):
     args.p_targets = target_distribution(probs)  # update the target distribution
 
 
-def CE_PI_CL_softBCE_train(model, 
+def run_ablation(model, 
                            labeled_train_loader,
                            labeled_eval_loader,
                            unlabeled_train_loader,
@@ -128,8 +128,12 @@ def CE_PI_CL_softBCE_train(model,
     - Pairwise BCE loss (ranking-based)
     """
     simCLR_loss = SimCLR_Loss(batch_size=args.batch_size, temperature=0.5).to(device)
-    criterion_bce = softBCE_N()
+
+    criterion_bce = BCE() if args.use_hardbce else softBCE_N()
+
+
     ce_criterion = nn.CrossEntropyLoss()
+
     sinkhorn = SinkhornKnopp(num_iters=3, epsilon=0.05)
 
     optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
@@ -174,21 +178,6 @@ def CE_PI_CL_softBCE_train(model,
             contrastive_loss = simCLR_loss(z_i, z_j)
 
 
-            # === Ranking-based pseudo-label (r_label)  === #
-            rank_feat = extracted_feat.detach()
-            rank_idx = torch.argsort(rank_feat, dim=1, descending=True)
-            rank_idx1, rank_idx2 = PairEnum(rank_idx)
-            rank_idx1, rank_idx2 = rank_idx1[:, :args.topk], rank_idx2[:, :args.topk]
-            rank_idx1, _ = torch.sort(rank_idx1, dim=1)
-            rank_idx2, _ = torch.sort(rank_idx2, dim=1)
-            matches = (rank_idx1.unsqueeze(2) == rank_idx2.unsqueeze(1)).sum(dim=2)
-            common_elements = matches.sum(dim=1)
-            
-            r_label = common_elements.float() / args.topk
-
-            
-             # === Sinkhorn-based pseudo-label (s_label)  === #
-
              # Step 1: Raw logits
             temp = 0.1
             logits = -torch.sum((z_unlabeled.unsqueeze(1) - model.encoder.center) ** 2, dim=2) 
@@ -207,18 +196,51 @@ def CE_PI_CL_softBCE_train(model,
             pseudo_i, pseudo_j = PairEnum(pseudo)
             pseudo_bar_i, pseudo_bar_j = PairEnum(pseudo_bar)
 
-            # === Sinkhorn pseudo-label (s_label)
+            # === Sinkhorn soft pseudo-label (s_label)
             s_label = 0.5 * (
                 (pseudo_i * pseudo_j).sum(dim=1) +
                 (pseudo_bar_i * pseudo_bar_j).sum(dim=1)
             )
 
-            # === Final combined pseudo-label
-            # alpha = args.mix_alpha  # new argument, e.g. 0.5
-            alpha = 0.5  # new argument, e.g. 0.5
+            # === Ranking-based soft pseudo-label (r_label)
+            rank_feat = extracted_feat.detach()
+            rank_idx = torch.argsort(rank_feat, dim=1, descending=True)
+            rank_idx1, rank_idx2 = PairEnum(rank_idx)
+            rank_idx1, rank_idx2 = rank_idx1[:, :args.topk], rank_idx2[:, :args.topk]
+            rank_idx1, _ = torch.sort(rank_idx1, dim=1)
+            rank_idx2, _ = torch.sort(rank_idx2, dim=1)
 
-            pairwise_pseudo_label = (1 - alpha) * r_label + alpha * s_label
-            pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
+            # soft r-label
+            matches = (rank_idx1.unsqueeze(2) == rank_idx2.unsqueeze(1)).sum(dim=2)
+            common_elements = matches.sum(dim=1)
+            r_label = common_elements.float() / args.topk
+
+
+            # === Final combined pseudo-label
+
+            if args.use_hardbce:
+                # === Hard BCE label
+                rank_diff = rank_idx1 - rank_idx2
+                rank_diff = torch.sum(torch.abs(rank_diff), dim=1)
+                pairwise_pseudo_label = torch.ones_like(rank_diff).float().to(device)
+                pairwise_pseudo_label[rank_diff > 0] = -1  # 1 for match, -1 otherwise
+
+            elif args.use_softbce:
+                # === Soft BCE logic with sinkhorn and/or ranking
+                use_sinkhorn = args.use_sinkhorn_softbce
+                use_rank = args.use_rank_softbce
+
+                if use_sinkhorn and use_rank:
+                    alpha = 0.5
+                    pairwise_pseudo_label = (1 - alpha) * r_label + alpha * s_label
+
+                elif use_sinkhorn:
+                    pairwise_pseudo_label = s_label
+
+                elif use_rank:
+                    pairwise_pseudo_label = r_label
+
+                pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
 
           
             prob_pair, _ = PairEnum(prob)
@@ -242,7 +264,23 @@ def CE_PI_CL_softBCE_train(model,
             ce_loss = ce_criterion(labeled_pred_l, y_l)
 
             
-            loss =ce_loss + sharp_loss + w * consistency_loss + w * contrastive_loss + w_softBCE * bce_loss
+            loss = 0
+
+            if args.use_kl:
+                loss += sharp_loss
+            
+            if args.use_mse:
+                loss += w * consistency_loss
+
+            if args.use_simclr:
+                loss += w * contrastive_loss
+            
+            if args.use_softbce or args.use_hardbce:
+                loss += w_softBCE * bce_loss
+
+            if args.use_ce:
+                loss += ce_loss
+
             loss_record.update(loss.item(), x.size(0))
 
             optimizer.zero_grad()
@@ -477,6 +515,16 @@ if __name__ == "__main__":
     parser.add_argument('--model_name', type=str, default='resnet18')
     parser.add_argument('--save_txt_name', type=str, default='result.txt')
 
+    # Ablation Study parameters
+    parser.add_argument('--use_simclr', type=str2bool, default=True)
+    parser.add_argument('--use_kl', type=str2bool, default=True)
+    parser.add_argument('--use_mse', type=str2bool, default=True)
+    parser.add_argument('--use_softbce', type=str2bool, default=True)
+    parser.add_argument('--use_sinkhorn_softbce', type=str2bool, default=True)
+    parser.add_argument('--use_rank_softbce', type=str2bool, default=True)
+    parser.add_argument('--use_hardbce', type=str2bool, default=False)
+
+
     args = parser.parse_args()
     args.cuda = torch.cuda.is_available()
     device = torch.device("cuda" if args.cuda else "cpu")
@@ -542,7 +590,7 @@ if __name__ == "__main__":
     warmup_train(model, unlabeled_train_loader, unlabeled_eval_loader, args)
 
     # Main training and get best metrics
-    best_acc, best_nmi, best_ari, best_f1 = CE_PI_CL_softBCE_train(model, 
+    best_acc, best_nmi, best_ari, best_f1 = run_ablation(model, 
                             labeled_train_loader, labeled_eval_loader, 
                             unlabeled_train_loader, unlabeled_eval_loader,
                             args)
