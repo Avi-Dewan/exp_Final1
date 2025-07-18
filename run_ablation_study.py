@@ -446,7 +446,7 @@ def log_results(log_file, config_name, imbalance_config, final_acc, final_nmi, f
     
     # Convert imbalance_config to string if it's a list/dict
     if isinstance(imbalance_config, (list, dict)):
-        imbalance_config_str = json.dumps(imbalance_config).replace('"', "'")
+        imbalance_config_str = json.dumps(imbalance_config).replace('"/kaggle/input/simclr_finetuned_cifar-10/pytorch/default/1/resnet_simCLR_finetuned.pth', "'")
     else:
         imbalance_config_str = str(imbalance_config)
     
@@ -517,6 +517,7 @@ if __name__ == "__main__":
 
     # Ablation Study parameters
     parser.add_argument('--use_simclr', type=str2bool, default=True)
+    parser.add_argument('--use_ce', type=str2bool, default=True)
     parser.add_argument('--use_kl', type=str2bool, default=True)
     parser.add_argument('--use_mse', type=str2bool, default=True)
     parser.add_argument('--use_softbce', type=str2bool, default=True)
