@@ -173,7 +173,6 @@ def CE_PI_CL_softBCE_train(model,
             z_j = model.projector_CL(extracted_feat_bar)
             contrastive_loss = simCLR_loss(z_i, z_j)
 
-            
 
             # === Ranking-based pseudo-label (r_label)  === #
             rank_feat = extracted_feat.detach()
@@ -190,36 +189,38 @@ def CE_PI_CL_softBCE_train(model,
             
              # === Sinkhorn-based pseudo-label (s_label)  === #
 
-             # Step 1: Raw logits
-            temp = 0.1
-            logits = -torch.sum((z_unlabeled.unsqueeze(1) - model.encoder.center) ** 2, dim=2) 
-            logits_bar = -torch.sum((z_unlabeled_bar.unsqueeze(1) - model.encoder.center) ** 2, dim=2) 
+            #  # Step 1: Raw logits
+            # temp = 0.1
+            # logits = -torch.sum((z_unlabeled.unsqueeze(1) - model.encoder.center) ** 2, dim=2) 
+            # logits_bar = -torch.sum((z_unlabeled_bar.unsqueeze(1) - model.encoder.center) ** 2, dim=2) 
             
 
-            # Step 2: Sinkhorn input stability
-            logits_all = torch.cat([logits, logits_bar], dim=0)
-            logits_all = logits_all - logits_all.max()  # stability
+            # # Step 2: Sinkhorn input stability
+            # logits_all = torch.cat([logits, logits_bar], dim=0)
+            # logits_all = logits_all - logits_all.max()  # stability
          
-            # Step 3: Sinkhorn assignments
-            pseudo_all = sinkhorn(logits_all)
-            pseudo, pseudo_bar = pseudo_all[:logits.size(0)], pseudo_all[logits.size(0):]
+            # # Step 3: Sinkhorn assignments
+            # pseudo_all = sinkhorn(logits_all)
+            # pseudo, pseudo_bar = pseudo_all[:logits.size(0)], pseudo_all[logits.size(0):]
 
-            # Step 4: Pairwise soft labels
-            pseudo_i, pseudo_j = PairEnum(pseudo)
-            pseudo_bar_i, pseudo_bar_j = PairEnum(pseudo_bar)
+            # # Step 4: Pairwise soft labels
+            # pseudo_i, pseudo_j = PairEnum(pseudo)
+            # pseudo_bar_i, pseudo_bar_j = PairEnum(pseudo_bar)
 
-            # === Sinkhorn pseudo-label (s_label)
-            s_label = 0.5 * (
-                (pseudo_i * pseudo_j).sum(dim=1) +
-                (pseudo_bar_i * pseudo_bar_j).sum(dim=1)
-            )
+            # # === Sinkhorn pseudo-label (s_label)
+            # s_label = 0.5 * (
+            #     (pseudo_i * pseudo_j).sum(dim=1) +
+            #     (pseudo_bar_i * pseudo_bar_j).sum(dim=1)
+            # )
 
-            # === Final combined pseudo-label
-            # alpha = args.mix_alpha  # new argument, e.g. 0.5
-            alpha = 0.5  # new argument, e.g. 0.5
+            # # === Final combined pseudo-label
+            # # alpha = args.mix_alpha  # new argument, e.g. 0.5
+            # alpha = 0.5  # new argument, e.g. 0.5
 
-            pairwise_pseudo_label = (1 - alpha) * r_label + alpha * s_label
-            pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
+            # pairwise_pseudo_label = (1 - alpha) * r_label + alpha * s_label
+            # pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
+
+            pairwise_pseudo_label = r_label
 
           
             prob_pair, _ = PairEnum(prob)
