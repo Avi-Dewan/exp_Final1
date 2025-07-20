@@ -173,6 +173,23 @@ def CE_PI_CL_softBCE_train(model,
             z_j = model.projector_CL(extracted_feat_bar)
             contrastive_loss = simCLR_loss(z_i, z_j)
 
+             # pairwise BCE label via ranking
+            rank_feat = extracted_feat.detach()
+            rank_idx = torch.argsort(rank_feat, dim=1, descending=True)
+            rank_idx1, rank_idx2 = PairEnum(rank_idx)
+            rank_idx1, rank_idx2 = rank_idx1[:, :args.topk], rank_idx2[:, :args.topk]
+            rank_idx1, _ = torch.sort(rank_idx1, dim=1)
+            rank_idx2, _ = torch.sort(rank_idx2, dim=1)
+
+            matches = (rank_idx1.unsqueeze(2) == rank_idx2.unsqueeze(1)).sum(dim=2)
+            common_elements = matches.sum(dim=1)
+            pairwise_pseudo_label = common_elements.float() / args.topk
+
+            prob_pair, _ = PairEnum(prob)
+            _, prob_bar_pair = PairEnum(prob_bar)
+
+            bce_loss = criterion_bce(prob_pair, prob_bar_pair, pairwise_pseudo_label)
+
 
             # === Ranking-based pseudo-label (r_label)  === #
             rank_feat = extracted_feat.detach()
