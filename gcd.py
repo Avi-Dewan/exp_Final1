@@ -128,11 +128,9 @@ def CE_PI_CL_softBCE_train(model,
     - Pairwise BCE loss (ranking-based)
     """
     simCLR_loss = SimCLR_Loss(batch_size=args.batch_size, temperature=0.5).to(device)
-    # criterion_bce = softBCE_N()
+    criterion_bce = softBCE_N()
     ce_criterion = nn.CrossEntropyLoss()
-    # sinkhorn = SinkhornKnopp(num_iters=3, epsilon=0.05)
-
-    criterion_hard_bce = BCE()
+    sinkhorn = SinkhornKnopp(num_iters=3, epsilon=0.05)
 
     optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 
@@ -177,84 +175,58 @@ def CE_PI_CL_softBCE_train(model,
 
 
             # === Ranking-based pseudo-label (r_label)  === #
-            # rank_feat = extracted_feat.detach()
-            # rank_idx = torch.argsort(rank_feat, dim=1, descending=True)
-            # rank_idx1, rank_idx2 = PairEnum(rank_idx)
-            # rank_idx1, rank_idx2 = rank_idx1[:, :args.topk], rank_idx2[:, :args.topk]
-            # rank_idx1, _ = torch.sort(rank_idx1, dim=1)
-            # rank_idx2, _ = torch.sort(rank_idx2, dim=1)
-            # matches = (rank_idx1.unsqueeze(2) == rank_idx2.unsqueeze(1)).sum(dim=2)
-            # common_elements = matches.sum(dim=1)
-            
-            # r_label = common_elements.float() / args.topk
-
-
-
-            
-            # # === Sinkhorn-based pseudo-label (s_label)  === #
-
-            #  # Step 1: Raw logits
-            # temp = 0.1
-            # logits = -torch.sum((z_unlabeled.unsqueeze(1) - model.encoder.center) ** 2, dim=2) 
-            # logits_bar = -torch.sum((z_unlabeled_bar.unsqueeze(1) - model.encoder.center) ** 2, dim=2) 
-            
-
-            # # Step 2: Sinkhorn input stability
-            # logits_all = torch.cat([logits, logits_bar], dim=0)
-            # logits_all = logits_all - logits_all.max()  # stability
-         
-            # # Step 3: Sinkhorn assignments
-            # pseudo_all = sinkhorn(logits_all)
-            # pseudo, pseudo_bar = pseudo_all[:logits.size(0)], pseudo_all[logits.size(0):]
-
-            # # Step 4: Pairwise soft labels
-            # pseudo_i, pseudo_j = PairEnum(pseudo)
-            # pseudo_bar_i, pseudo_bar_j = PairEnum(pseudo_bar)
-
-            # # === Sinkhorn pseudo-label (s_label)
-            # s_label = 0.5 * (
-            #     (pseudo_i * pseudo_j).sum(dim=1) +
-            #     (pseudo_bar_i * pseudo_bar_j).sum(dim=1)
-            # )
-
-            # # # === Final combined pseudo-label
-            # # # alpha = args.mix_alpha  # new argument, e.g. 0.5
-            # # alpha = 0.5  # new argument, e.g. 0.5
-
-            # # pairwise_pseudo_label = (1 - alpha) * r_label + alpha * s_label
-            # # pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
-
-            # pairwise_pseudo_label = s_label
-
-            # prob_pair, _ = PairEnum(prob)
-            # _, prob_bar_pair = PairEnum(prob_bar)
-
-
-            # # Step 6: Final BCE
-            # bce_loss = criterion_bce(prob_pair, prob_bar_pair, pairwise_pseudo_label)
-
-
-
-            # Hard BCE: 
-            
-             # === Ranking-based soft pseudo-label (r_label)
             rank_feat = extracted_feat.detach()
             rank_idx = torch.argsort(rank_feat, dim=1, descending=True)
             rank_idx1, rank_idx2 = PairEnum(rank_idx)
             rank_idx1, rank_idx2 = rank_idx1[:, :args.topk], rank_idx2[:, :args.topk]
             rank_idx1, _ = torch.sort(rank_idx1, dim=1)
             rank_idx2, _ = torch.sort(rank_idx2, dim=1)
+            matches = (rank_idx1.unsqueeze(2) == rank_idx2.unsqueeze(1)).sum(dim=2)
+            common_elements = matches.sum(dim=1)
+            
+            r_label = common_elements.float() / args.topk
 
-            rank_diff = rank_idx1 - rank_idx2
-            rank_diff = torch.sum(torch.abs(rank_diff), dim=1)
-            pairwise_pseudo_label = torch.ones_like(rank_diff).float().to(device) 
-            pairwise_pseudo_label[rank_diff>0] = -1 
+            
+             # === Sinkhorn-based pseudo-label (s_label)  === #
 
+             # Step 1: Raw logits
+            temp = 0.1
+            logits = -torch.sum((z_unlabeled.unsqueeze(1) - model.encoder.center) ** 2, dim=2) 
+            logits_bar = -torch.sum((z_unlabeled_bar.unsqueeze(1) - model.encoder.center) ** 2, dim=2) 
+            
+
+            # Step 2: Sinkhorn input stability
+            logits_all = torch.cat([logits, logits_bar], dim=0)
+            logits_all = logits_all - logits_all.max()  # stability
+         
+            # Step 3: Sinkhorn assignments
+            pseudo_all = sinkhorn(logits_all)
+            pseudo, pseudo_bar = pseudo_all[:logits.size(0)], pseudo_all[logits.size(0):]
+
+            # Step 4: Pairwise soft labels
+            pseudo_i, pseudo_j = PairEnum(pseudo)
+            pseudo_bar_i, pseudo_bar_j = PairEnum(pseudo_bar)
+
+            # === Sinkhorn pseudo-label (s_label)
+            s_label = 0.5 * (
+                (pseudo_i * pseudo_j).sum(dim=1) +
+                (pseudo_bar_i * pseudo_bar_j).sum(dim=1)
+            )
+
+            # === Final combined pseudo-label
+            # alpha = args.mix_alpha  # new argument, e.g. 0.5
+            alpha = 0.5  # new argument, e.g. 0.5
+
+            pairwise_pseudo_label = (1 - alpha) * r_label + alpha * s_label
+            pairwise_pseudo_label = pairwise_pseudo_label.clamp(min=1e-4, max=1 - 1e-4)
+
+          
             prob_pair, _ = PairEnum(prob)
             _, prob_bar_pair = PairEnum(prob_bar)
 
-            bce_loss = criterion_hard_bce(prob_pair, prob_bar_pair, pairwise_pseudo_label)
-         
+
+            # Step 6: Final BCE
+            bce_loss = criterion_bce(prob_pair, prob_bar_pair, pairwise_pseudo_label)
 
             # === Add labeled CE loss ===
             try:
@@ -487,7 +459,7 @@ if __name__ == "__main__":
     parser.add_argument('--n_unlabeled_classes', default=5, type=int)
     parser.add_argument('--n_labeled_classes', default=5, type=int)
 
-    parser.add_argument('--seed', default=1, type=int)
+    parser.add_argument('--seed', default=1029, type=int)
 
     parser.add_argument('--topk', default=5, type=int)
     parser.add_argument('--proj_dim_cl', default=128, type=int)
