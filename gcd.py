@@ -459,7 +459,7 @@ if __name__ == "__main__":
     parser.add_argument('--n_unlabeled_classes', default=5, type=int)
     parser.add_argument('--n_labeled_classes', default=5, type=int)
 
-    parser.add_argument('--seed', default=1029, type=int)
+    parser.add_argument('--seed', default=2025, type=int)
 
     parser.add_argument('--topk', default=5, type=int)
     parser.add_argument('--proj_dim_cl', default=128, type=int)
